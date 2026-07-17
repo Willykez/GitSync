@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Cloud
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -79,12 +81,12 @@ private data class ToolCategory(val title: String, val accent: Color, val tools:
 @Composable
 fun MoreScreen(
     repoId: Long?,
+    onBack: () -> Unit,
     onOpenBranches: () -> Unit,
     onOpenStash: () -> Unit,
     onOpenRemote: () -> Unit,
     onOpenTags: () -> Unit,
     onOpenGitignore: () -> Unit,
-    onOpenFiles: () -> Unit,
     onOpenConflicts: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -118,14 +120,18 @@ fun MoreScreen(
             title = "Repository",
             accent = Emerald,
             tools = listOf(
-                ToolTile("Files", Icons.Filled.FolderOpen, onOpenFiles),
                 ToolTile("Remotes", Icons.Filled.Cloud, onOpenRemote),
             ),
         ),
     )
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Tools", fontWeight = FontWeight.Bold) }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Tools", fontWeight = FontWeight.Bold) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to repos") } },
+            )
+        },
     ) { pad ->
         if (repoId == null) {
             NoRepoSelected(Modifier.padding(pad))

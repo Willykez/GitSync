@@ -52,13 +52,17 @@ import com.willykez.repomaster.ui.screens.stash.StashScreen
 import com.willykez.repomaster.ui.screens.tags.TagsScreen
 
 object Routes {
-    // Bottom-tab roots — none of these carry a repoId in the route itself
-    // anymore. Which repo they act on is shared UI state (see [selectedRepoId]
-    // in [RepoMasterApp]), set by tapping a repo in the Repos tab.
+    // Home — not a bottom tab anymore. This is the app's start destination;
+    // tapping a repo here pushes into the repo-scoped tabs below it.
     const val REPO_LIST  = "repos"
+
+    // Bottom-tab roots, shown only once a repo is open. None of these carry
+    // a repoId in the route itself — which repo they act on is shared UI
+    // state (see [selectedRepoId] in [RepoMasterApp]), set on the Home screen.
     const val CHANGES_TAB = "changes_tab"
     const val HISTORY_TAB = "history_tab"
     const val MORE        = "more"
+    const val FILES_TAB   = "files_tab"
 
     // Deep / stack screens — unchanged from before, still reached by pushing
     // on top of whichever tab is current, and still hide the bottom bar.
@@ -94,10 +98,10 @@ object Routes {
 private data class TabItem(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
 
 private val TAB_ITEMS = listOf(
-    TabItem(Routes.REPO_LIST, "Repos", Icons.Filled.Folder),
     TabItem(Routes.CHANGES_TAB, "Changes", Icons.Filled.Dashboard),
     TabItem(Routes.HISTORY_TAB, "History", Icons.Filled.History),
     TabItem(Routes.MORE, "Tools", Icons.Filled.Build),
+    TabItem(Routes.FILES_TAB, "Files", Icons.Filled.Folder),
 )
 
 private const val T = 240
@@ -113,10 +117,11 @@ private fun AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry
 }
 
 /**
- * The whole app shell: a persistent bottom [NavigationBar] with the four
- * main tabs, wrapping the same stack-based [NavHost] the app used before for
- * every deep/detail screen (diff, branches, editor, etc.) — those still push
- * on top and hide the bottom bar, exactly like a typical tabs-plus-stack app.
+ * The whole app shell. [Routes.REPO_LIST] is Home — a full-screen repo picker with no
+ * bottom bar. Tapping a repo there opens it: a persistent bottom [NavigationBar] with
+ * Changes / History / Tools / Files appears, all acting on that one repo, until you back
+ * out to Home again. Every deep/detail screen (diff, branches, editor, etc.) still pushes
+ * on top of whichever tab is current and hides the bottom bar, same as before.
  */
 @Composable
 fun RepoMasterApp() {
@@ -227,14 +232,30 @@ private fun RepoMasterNavHost(
         composable(Routes.MORE) {
             MoreScreen(
                 repoId = selectedRepoId,
+                onBack = { nav.navigate(Routes.REPO_LIST) },
                 onOpenBranches = { selectedRepoId?.let { nav.navigate(Routes.branches(it)) } },
                 onOpenStash = { selectedRepoId?.let { nav.navigate(Routes.stash(it)) } },
                 onOpenRemote = { selectedRepoId?.let { nav.navigate(Routes.remote(it)) } },
                 onOpenTags = { selectedRepoId?.let { nav.navigate(Routes.tags(it)) } },
                 onOpenGitignore = { selectedRepoId?.let { nav.navigate(Routes.gitignore(it)) } },
-                onOpenFiles = { selectedRepoId?.let { nav.navigate(Routes.explorer(it)) } },
                 onOpenConflicts = { selectedRepoId?.let { nav.navigate(Routes.conflicts(it)) } },
             )
+        }
+
+        composable(Routes.FILES_TAB) {
+            val id = selectedRepoId
+            if (id == null) {
+                EmptyTabState("Pick a repo to browse its files", onGoToRepos = { nav.navigate(Routes.REPO_LIST) })
+            } else {
+                FileExplorerScreen(
+                    repoId = id,
+                    relativePath = "",
+                    onBack = { nav.navigate(Routes.REPO_LIST) },
+                    onOpenFolder = { childPath -> nav.navigate(Routes.explorer(id, childPath)) },
+                    onOpenFile = { filePath -> nav.navigate(Routes.editor(id, filePath)) },
+                    onOpenBlame = { filePath -> nav.navigate(Routes.blame(id, filePath)) },
+                )
+            }
         }
 
         composable(Routes.SETTINGS) { SettingsScreen(onBack = { nav.popBackStack() }) }

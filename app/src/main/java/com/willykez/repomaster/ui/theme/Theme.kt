@@ -3,25 +3,29 @@ package com.willykez.repomaster.ui.theme
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.MaterialExpressiveTheme
-import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.expressiveLightColorScheme
-import androidx.compose.material3.expressiveDarkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
-// Dark is still Repo Master's default identity — a cockpit, not a
-// document — but the visual language is now Material 3 Expressive: bigger
-// shape rhythm, a three-color accent system (violet/coral/emerald), and
-// spring-based motion instead of flat tweens.
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-private val DarkScheme = expressiveDarkColorScheme(
+// Dark is still Repo Master's default identity — a cockpit, not a document —
+// with a three-color accent system (violet/coral/emerald) and a wider shape
+// rhythm than the old flat design.
+//
+// NOTE: this previously built on Material 3 *Expressive* (MaterialExpressiveTheme,
+// expressiveLightColorScheme/expressiveDarkColorScheme, MotionScheme). That tier
+// is compiled as internal-only in the material3 build this project's pinned
+// compose-bom actually resolves, so no @OptIn can reach it and the build fails.
+// This uses the standard, always-public M3 color-scheme/theme API instead —
+// same palette, same shapes, same typography, just without the Expressive
+// motion system.
+private val DarkScheme = darkColorScheme(
     primary = CommandBlue,
     onPrimary = Color(0xFF2B1259),
     primaryContainer = CommandBlueDeep,
@@ -48,8 +52,7 @@ private val DarkScheme = expressiveDarkColorScheme(
     onError = Color.White,
 )
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-private val LightScheme = expressiveLightColorScheme(
+private val LightScheme = lightColorScheme(
     primary = CommandBlueDeep,
     onPrimary = Color.White,
     primaryContainer = CommandBlueDim,
@@ -69,9 +72,8 @@ private val LightScheme = expressiveLightColorScheme(
     onError = Color.White,
 )
 
-// M3 Expressive's shape scale is "more like the type scale" — a wider range
-// of roundedness used deliberately, not just one radius everywhere. Cards
-// and sheets get the bigger, softer "increased" corners; chips and small
+// A wider range of roundedness used deliberately, not just one radius
+// everywhere — cards and sheets get bigger, softer corners; chips and small
 // controls stay tighter.
 val RepoMasterShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
@@ -81,14 +83,13 @@ val RepoMasterShapes = Shapes(
     extraLarge = RoundedCornerShape(36.dp),
 )
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun RepoMasterTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     // Material You: derive the scheme from the user's wallpaper on Android 12+.
     // Off by default would make every install look identical; on by default
-    // is the whole point of "Expressive" personalization — flip to false if
-    // you want Repo Master's violet/coral identity to be non-negotiable.
+    // is the whole point of personalization — flip to false if you want Repo
+    // Master's violet/coral identity to be non-negotiable.
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
@@ -100,11 +101,10 @@ fun RepoMasterTheme(
         else -> LightScheme
     }
 
-    MaterialExpressiveTheme(
+    MaterialTheme(
         colorScheme = colorScheme,
         typography = RepoMasterTypography,
         shapes = RepoMasterShapes,
-        motionScheme = MotionScheme.expressive(),
         content = content,
     )
 }

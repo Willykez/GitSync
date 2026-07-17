@@ -2,14 +2,16 @@ package com.willykez.repomaster.navigation
 
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -95,10 +97,20 @@ private val TAB_ITEMS = listOf(
     TabItem(Routes.REPO_LIST, "Repos", Icons.Filled.Folder),
     TabItem(Routes.CHANGES_TAB, "Changes", Icons.Filled.Dashboard),
     TabItem(Routes.HISTORY_TAB, "History", Icons.Filled.History),
-    TabItem(Routes.MORE, "More", Icons.Filled.MoreHoriz),
+    TabItem(Routes.MORE, "Tools", Icons.Filled.Build),
 )
 
 private const val T = 240
+private const val TAB_FADE = 160
+
+/** True when both sides of a nav transition are top-level tab roots — i.e. a bottom-nav
+ *  tap, not a push/pop onto the stack. Used to pick a cross-fade over a directional slide,
+ *  since sibling tabs have no "forward/back" relationship to each other. */
+private fun AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.isTabSwitch(): Boolean {
+    val from = initialState.destination.route
+    val to = targetState.destination.route
+    return TAB_ITEMS.any { it.route == from } && TAB_ITEMS.any { it.route == to }
+}
 
 /**
  * The whole app shell: a persistent bottom [NavigationBar] with the four
@@ -159,10 +171,22 @@ private fun RepoMasterNavHost(
     NavHost(
         navController = nav,
         startDestination = Routes.REPO_LIST,
-        enterTransition = { slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(T)) },
-        exitTransition  = { slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(T)) },
-        popEnterTransition  = { slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(T)) },
-        popExitTransition   = { slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(T)) },
+        enterTransition = {
+            if (isTabSwitch()) fadeIn(tween(TAB_FADE))
+            else slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(T))
+        },
+        exitTransition = {
+            if (isTabSwitch()) fadeOut(tween(TAB_FADE))
+            else slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(T))
+        },
+        popEnterTransition = {
+            if (isTabSwitch()) fadeIn(tween(TAB_FADE))
+            else slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(T))
+        },
+        popExitTransition = {
+            if (isTabSwitch()) fadeOut(tween(TAB_FADE))
+            else slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(T))
+        },
     ) {
         composable(Routes.REPO_LIST) {
             RepoListScreen(
@@ -181,15 +205,8 @@ private fun RepoMasterNavHost(
                 ChangesScreen(
                     repoId = id,
                     onBack = { nav.navigate(Routes.REPO_LIST) },
-                    onOpenLog      = { nav.navigate(Routes.HISTORY_TAB) },
-                    onOpenBranches = { nav.navigate(Routes.branches(id)) },
-                    onOpenStash    = { nav.navigate(Routes.stash(id)) },
-                    onOpenRemote   = { nav.navigate(Routes.remote(id)) },
-                    onOpenTags     = { nav.navigate(Routes.tags(id)) },
-                    onOpenGitignore= { nav.navigate(Routes.gitignore(id)) },
-                    onOpenFiles    = { nav.navigate(Routes.explorer(id)) },
-                    onOpenConflicts= { nav.navigate(Routes.conflicts(id)) },
-                    onOpenDiff     = { path, staged -> nav.navigate(Routes.diff(id, path, staged)) },
+                    onOpenConflicts = { nav.navigate(Routes.conflicts(id)) },
+                    onOpenDiff = { path, staged -> nav.navigate(Routes.diff(id, path, staged)) },
                 )
             }
         }
@@ -217,9 +234,6 @@ private fun RepoMasterNavHost(
                 onOpenGitignore = { selectedRepoId?.let { nav.navigate(Routes.gitignore(it)) } },
                 onOpenFiles = { selectedRepoId?.let { nav.navigate(Routes.explorer(it)) } },
                 onOpenConflicts = { selectedRepoId?.let { nav.navigate(Routes.conflicts(it)) } },
-                onOpenDiscover = { nav.navigate(Routes.DISCOVER) },
-                onOpenCredentials = { nav.navigate(Routes.CREDENTIALS) },
-                onOpenSettings = { nav.navigate(Routes.SETTINGS) },
             )
         }
 

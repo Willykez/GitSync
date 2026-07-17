@@ -1,8 +1,13 @@
 package com.willykez.repomaster.ui.screens.repolist
 
 import android.os.Build
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -45,6 +51,7 @@ fun RepoListScreen(
     var showCloneSheet by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     var hasStorageAccess by remember { mutableStateOf(PublicStorage.hasStorageAccess(context)) }
@@ -107,9 +114,20 @@ fun RepoListScreen(
                                     onClick = { showSortMenu = false; vm.setSortMode(RepoSortMode.HAS_CHANGES) })
                             }
                         }
-                        IconButton(onClick = onOpenDiscover) { Icon(Icons.Filled.Explore, "Discover on GitHub") }
-                        IconButton(onClick = onOpenCredentials) { Icon(Icons.Filled.Key, "Credentials") }
-                        IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, "Settings") }
+                        Box {
+                            IconButton(onClick = { showOverflowMenu = true }) { Icon(Icons.Filled.MoreVert, "More") }
+                            DropdownMenu(expanded = showOverflowMenu, onDismissRequest = { showOverflowMenu = false }) {
+                                DropdownMenuItem(text = { Text("Discover on GitHub") },
+                                    leadingIcon = { Icon(Icons.Filled.Explore, null) },
+                                    onClick = { showOverflowMenu = false; onOpenDiscover() })
+                                DropdownMenuItem(text = { Text("Credentials") },
+                                    leadingIcon = { Icon(Icons.Filled.Key, null) },
+                                    onClick = { showOverflowMenu = false; onOpenCredentials() })
+                                DropdownMenuItem(text = { Text("Settings") },
+                                    leadingIcon = { Icon(Icons.Filled.Settings, null) },
+                                    onClick = { showOverflowMenu = false; onOpenSettings() })
+                            }
+                        }
                         IconButton(onClick = { showCloneSheet = true }) { Icon(Icons.Filled.Add, "Clone") }
                     }
                 },
@@ -257,9 +275,24 @@ private fun RepoCard(
         changeCount != null && changeCount > 0 -> Amber
         else -> CommandBlue
     }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f),
+        label = "repoCardScale",
+    )
 
     GlassCard(
-        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onTap, onLongClick = onLongPress),
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onClick = onTap,
+                onLongClick = onLongPress,
+            ),
         accent = accent,
     ) {
         Column(Modifier.padding(14.dp)) {

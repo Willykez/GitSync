@@ -1,5 +1,10 @@
 package com.willykez.repomaster.ui.screens.changes
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -39,13 +44,6 @@ import com.willykez.repomaster.ui.theme.*
 fun ChangesScreen(
     repoId: Long,
     onBack: () -> Unit,
-    onOpenLog: () -> Unit,
-    onOpenBranches: () -> Unit,
-    onOpenStash: () -> Unit,
-    onOpenRemote: () -> Unit,
-    onOpenTags: () -> Unit,
-    onOpenGitignore: () -> Unit,
-    onOpenFiles: () -> Unit,
     onOpenConflicts: () -> Unit,
     onOpenDiff: (path: String, staged: Boolean) -> Unit,
     vm: ChangesViewModel = viewModel(),
@@ -134,7 +132,11 @@ fun ChangesScreen(
         ) {
             Column(Modifier.fillMaxSize()) {
 
-                if (state.hasConflicts) {
+                AnimatedVisibility(
+                    visible = state.hasConflicts,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
+                ) {
                     Surface(color = StatusDeleted.copy(alpha = 0.15f)) {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
@@ -153,7 +155,11 @@ fun ChangesScreen(
                 }
 
                 // Ahead/behind status bar
-                if (state.ahead > 0 || state.behind > 0 || state.statusLine.isNotBlank()) {
+                AnimatedVisibility(
+                    visible = state.ahead > 0 || state.behind > 0 || state.statusLine.isNotBlank(),
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
+                ) {
                     Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -215,20 +221,6 @@ fun ChangesScreen(
                                     onDiff = { onOpenDiff(e.path, false) })
                             }
                         }
-                    }
-                }
-
-                // Bottom navigation icon bar — Tags / Log / Branches / Explorer (like PuppyGit)
-                Surface(tonalElevation = 4.dp) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                    ) {
-                        IconButton(onClick = onOpenTags) { Icon(Icons.Filled.Label, "Tags", tint = StatusClean) }
-                        IconButton(onClick = onOpenLog)  { Icon(Icons.Filled.History, "Log", tint = StatusClean) }
-                        IconButton(onClick = onOpenBranches) { Icon(Icons.Filled.AccountTree, "Branches", tint = StatusClean) }
-                        IconButton(onClick = onOpenRemote) { Icon(Icons.Filled.Cloud, "Remotes", tint = StatusClean) }
-                        IconButton(onClick = onOpenFiles) { Icon(Icons.Filled.Folder, "Files", tint = StatusClean) }
                     }
                 }
 
@@ -317,19 +309,12 @@ fun ChangesScreen(
             onPushForce = { showPushForceDialog = true },
             onSyncMerge = vm::syncMerge,
             onSyncRebase = vm::syncRebase,
-            onOpenLog = onOpenLog,
             onCherryPick = { showCherryPickDialog = true },
             onAmend = { showAmendDialog = true },
             onSquash = { showSquashDialog = true },
             onResetSoft = vm::resetSoft,
             onResetMixed = vm::resetMixed,
             onResetHard = { showResetDialog = true },
-            onOpenStash = onOpenStash,
-            onOpenBranches = onOpenBranches,
-            onOpenTags = onOpenTags,
-            onOpenRemote = onOpenRemote,
-            onOpenGitignore = onOpenGitignore,
-            onOpenFiles = onOpenFiles,
         )
     }
 }
@@ -356,19 +341,12 @@ private fun RepoToolsSheet(
     onPushForce: () -> Unit,
     onSyncMerge: () -> Unit,
     onSyncRebase: () -> Unit,
-    onOpenLog: () -> Unit,
     onCherryPick: () -> Unit,
     onAmend: () -> Unit,
     onSquash: () -> Unit,
     onResetSoft: () -> Unit,
     onResetMixed: () -> Unit,
     onResetHard: () -> Unit,
-    onOpenStash: () -> Unit,
-    onOpenBranches: () -> Unit,
-    onOpenTags: () -> Unit,
-    onOpenRemote: () -> Unit,
-    onOpenGitignore: () -> Unit,
-    onOpenFiles: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var openGroup by remember { mutableStateOf<String?>(null) }
@@ -420,7 +398,6 @@ private fun RepoToolsSheet(
                 title = "History", icon = Icons.Filled.History, isOpen = openGroup == "history",
                 onToggle = { openGroup = if (openGroup == "history") null else "history" },
             ) {
-                ToolRow("Commit log", Icons.Filled.History) { close(onOpenLog) }
                 ToolRow("Cherry-pick", Icons.Filled.ContentCopy) { close(onCherryPick) }
                 ToolRow("Amend last commit", Icons.Filled.Edit) { close(onAmend) }
                 ToolRow("Squash commits…", Icons.Filled.Compress) { close(onSquash) }
@@ -435,17 +412,12 @@ private fun RepoToolsSheet(
                 ToolRow("Reset (hard)", Icons.Filled.DeleteForever, danger = true) { close(onResetHard) }
             }
 
-            ToolGroup(
-                title = "Manage", icon = Icons.Filled.Folder, isOpen = openGroup == "manage",
-                onToggle = { openGroup = if (openGroup == "manage") null else "manage" },
-            ) {
-                ToolRow("Stash", Icons.Filled.Inventory) { close(onOpenStash) }
-                ToolRow("Branches", Icons.Filled.AccountTree) { close(onOpenBranches) }
-                ToolRow("Tags", Icons.Filled.Label) { close(onOpenTags) }
-                ToolRow("Remotes", Icons.Filled.Cloud) { close(onOpenRemote) }
-                ToolRow("Edit .gitignore", Icons.Filled.VisibilityOff) { close(onOpenGitignore) }
-                ToolRow("Files", Icons.Filled.Folder) { close(onOpenFiles) }
-            }
+            Text(
+                "Branches, tags, stash, remotes, and files live in the Tools tab.",
+                style = MaterialTheme.typography.labelSmall,
+                color = StatusClean,
+                modifier = Modifier.padding(top = 8.dp, start = 4.dp),
+            )
         }
     }
 }

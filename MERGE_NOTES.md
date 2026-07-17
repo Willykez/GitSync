@@ -1,4 +1,4 @@
-# Git Sync — merge notes
+# Repo Master — merge notes
 
 This project merges three forks of the same app (WillyGit, GitCommander, AlphaClone)
 into one, using **AlphaClone** as the base (it had the fullest feature set: Blame,
@@ -14,7 +14,7 @@ visual design system on top (the "cockpit" dark theme + GlassCard component).
 - Added `ui/components/GlassCard.kt` — the shared translucent card with hairline border
   and optional left-edge accent color, now used for repo cards, file rows, and the new
   tools sheet.
-- App renamed to **Git Sync** throughout (display name, package, identifiers).
+- App renamed to **Repo Master** throughout (display name, package, identifiers).
 
 **Home screen (RepoListScreen)** — repo cards now use GlassCard with a left accent bar
 (blue = clean, gold = uncommitted changes, red = error) instead of a flat surface color.
@@ -45,9 +45,9 @@ to pull dependencies). Open it in Android Studio and build before relying on it;
 anything doesn't compile it's most likely a stray import, and the diffs above tell you
 exactly where to look.
 
-## Rename: Willy Commander → Git Sync
-App name, package (`com.willykez.gitsync`), applicationId, all identifiers
-(`GitSyncTheme`, `GitSyncNavHost`, etc.), internal storage keys
+## Rename: Willy Commander → Repo Master
+App name, package (`com.willykez.repomaster`), applicationId, all identifiers
+(`RepoMasterTheme`, `RepoMasterNavHost`, etc.), internal storage keys
 (DB filename, keystore alias, worker names), and the public repo folder name
 were all updated for consistency. Launcher icon was swapped to GitCommander's
 adaptive icon (git graph in command-blue on the app's navy background) —
@@ -177,37 +177,3 @@ into this for Edit mode). Added `MARKDOWN -> emptyList()`, same as
   on its own line is dropped instead of showing as raw `<...>` text. This
   isn't general HTML rendering — just enough to stop badge blocks from
   showing as tag soup, which is the common case in real READMEs.
-
-## Four high-value features: SSH auth, hunk staging, full-text search, GPG signing
-
-This pass adds the four things flagged as the biggest gaps against a "real" git client:
-
-- **SSH key auth** (`SshKeyRepository`, `GitSshSessionFactory`, `SshKeysScreen`) — generate
-  an Ed25519 keypair on-device or import one from `ssh-keygen`, then clone/fetch/pull/push
-  over `git@host:owner/repo.git` URLs. Host key trust is trust-on-first-use, persisted to a
-  small file under app storage — not a full `known_hosts` parser, just enough to detect a
-  changed key on a later connection and refuse rather than silently re-trust it.
-- **Hunk/line-level staging** (`GitEngine.getWorkingVsIndexHunks` / `stageHunkSelections`,
-  `HunkStagingScreen`) — the "git add -p" workflow. Implemented at the plumbing level: diff
-  the index blob against the working-tree file with JGit's line differ, let the user pick
-  which added/removed lines to keep, write the resulting blob straight into the index via
-  `DirCacheEditor`. Reachable from a new "Stage Hunks…" item on any unstaged file's menu.
-- **Full-text search** (`GitEngine.searchWorkingTree` / `searchCommitMessages`,
-  `SearchScreen`) — a plain linear scan (no index), reachable via the search icon on the
-  Changes screen. Searches either current file contents on disk or commit message history.
-- **GPG commit signing** (`SigningKeyRepository`, `GpgSigningSupport`, Settings screen) — the
-  most uncertain of the four. JGit's Bouncy Castle signer finds keys by searching a
-  `~/.gnupg`-shaped directory the same way the real `gpg` CLI does, and there's no real
-  `$HOME` on Android — so `GpgHome.ensureUserHomeOverride()` relocates `user.home` into
-  app-private storage very early in `App.onCreate()`, and imported keys get written there
-  as `pubring.gpg`/`secring.gpg`. This depends on JGit's internal key-lookup fallback
-  behavior rather than a stable public API — verify a signed commit actually shows
-  "Verified" on a real device before relying on it, per the warning already in Settings.
-
-**Still outstanding from this pass** (not done, flagged rather than silently skipped):
-- SSH known-hosts trust has no UI to inspect/revoke a previously-trusted host key — only
-  the raw file under app storage.
-- Hunk staging doesn't preserve the executable bit correctly for a brand-new file staged
-  entirely through this path (defaults to `REGULAR_FILE`); whole-file staging is unaffected.
-- No submodule support, no interactive rebase UI, no PR creation — see the follow-up list
-  this pass came from for what's next after these four.

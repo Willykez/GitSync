@@ -1,4 +1,4 @@
-# Git Sync
+# Repo Master
 
 A full Git client for Android — clone, stage, commit, push, resolve conflicts,
 and edit files, all from your phone. Built with Jetpack Compose, JGit, and a
@@ -13,8 +13,8 @@ dark "command center" design system.
 
 ## Features
 
-- **Repo management** — clone over HTTPS or SSH, browse your repos, see uncommitted-change counts at a glance
-- **Stage & commit** — swipe to stage/discard, stage individual hunks/lines ("git add -p"), commit with a message, push in one tap
+- **Repo management** — clone over HTTPS, browse your repos, see uncommitted-change counts at a glance
+- **Stage & commit** — swipe to stage/discard, commit with a message, push in one tap
 - **Sync** — fetch, pull (merge or rebase), push, and combined sync, including force variants when you need them
 - **Conflict resolution** — pick "ours"/"theirs" per file, or jump into the built-in editor to resolve by hand
 - **History** — commit log, cherry-pick, amend, squash
@@ -22,10 +22,8 @@ dark "command center" design system.
 - **File explorer & editor** — browse the working tree and edit text files directly
 - **Blame view** — see who changed each line and when
 - **.gitignore editor** — with quick-insert templates for common stacks
-- **Full-text search** — grep the working tree or search commit messages, right from the app
 - **Discover** — search public GitHub repos and clone straight from search results
-- **Credentials & SSH keys** — store personal access tokens or generate/import SSH keypairs per-remote, encrypted at rest via Android Keystore
-- **Commit signing (GPG)** — sign commits so they show as "Verified" on GitHub/GitLab (best-effort — see Settings for details)
+- **Credentials** — store personal access tokens per-remote, encrypted at rest via Android Keystore
 - **Background sync** — optional scheduled fetch/pull so repos stay current without opening the app
 - **Adaptive light & dark themes** — a dark "cockpit" look by default, with a full light theme for accessibility/system preference
 
@@ -88,12 +86,12 @@ gradle assembleDebug
 | Permission | Why |
 |---|---|
 | `INTERNET` / `ACCESS_NETWORK_STATE` | Clone, fetch, push, pull over the network |
-| All-files access (Android 11+) / `WRITE_EXTERNAL_STORAGE` (Android 10-) | Repos are stored in a **public** folder (`/storage/emulated/0/GitSync/repos`) instead of the app's private sandbox, so any file manager, other app, or PC-over-USB can reach your files directly |
+| All-files access (Android 11+) / `WRITE_EXTERNAL_STORAGE` (Android 10-) | Repos are stored in a **public** folder (`/storage/emulated/0/RepoMaster/repos`) instead of the app's private sandbox, so any file manager, other app, or PC-over-USB can reach your files directly |
 
 ## Project structure
 
 ```
-app/src/main/java/com/willykez/gitsync/
+app/src/main/java/com/willykez/repomaster/
 ├── data/            # Room entities/DAOs, repositories, encrypted credential storage
 ├── git/             # JGit wrapper — clone/fetch/pull/push/commit/etc.
 ├── sync/            # WorkManager background sync

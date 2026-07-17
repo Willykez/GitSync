@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "GitSync"
+rootProject.name = "RepoMaster"
 include(":app")

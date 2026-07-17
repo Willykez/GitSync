@@ -787,12 +787,12 @@ object GitEngine {
             val editor: DirCacheEditor = dirCache.editor()
             val existingMode = dirCache.getEntry(path)?.fileMode ?: FileMode.REGULAR_FILE
             editor.add(object : DirCacheEditor.PathEdit(path) {
-                override fun apply(ent: DirCacheEntry) {
-                    ent.fileMode = existingMode
-                    ent.setObjectId(blobId)
-                    ent.setLength(newContent.size)
-                    ent.lastModified = java.time.Instant.now()
-                }
+               override fun apply(ent: DirCacheEntry) {
+    ent.fileMode = existingMode
+    ent.setObjectId(blobId)
+    ent.setLength(newContent.size)
+    ent.lastModified = System.currentTimeMillis()
+}
             })
             editor.commit()
         } finally {

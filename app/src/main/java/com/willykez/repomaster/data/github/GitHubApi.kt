@@ -41,7 +41,7 @@ object GitHubApi {
     suspend fun searchRepos(query: String, token: String? = null): GitHubResult<List<GitHubRepoSummary>> {
         if (query.isBlank()) return GitHubResult.Success(emptyList())
         val url = "$BASE/search/repositories?q=${URLEncoder.encode(query, "UTF-8")}&per_page=30"
-        return when (val r = httpGet(url, token)) {
+        return when (val r = http(url, "GET", token)) {
             is GitHubResult.Error -> r
             is GitHubResult.Success -> try {
                 val json = JSONObject(r.data)
@@ -54,7 +54,7 @@ object GitHubApi {
 
     suspend fun listMyRepos(token: String): GitHubResult<List<GitHubRepoSummary>> {
         val url = "$BASE/user/repos?per_page=50&sort=updated"
-        return when (val r = httpGet(url, token)) {
+        return when (val r = http(url, "GET", token)) {
             is GitHubResult.Error -> r
             is GitHubResult.Success -> try {
                 GitHubResult.Success(parseRepoArray(JSONArray(r.data)))
@@ -64,31 +64,74 @@ object GitHubApi {
         }
     }
 
-    private fun parseRepoArray(arr: JSONArray): List<GitHubRepoSummary> {
-        return (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            GitHubRepoSummary(
-                fullName = o.getString("full_name"),
-                description = if (o.isNull("description")) null else o.optString("description").ifBlank { null },
-                cloneUrl = o.getString("clone_url"),
-                stars = o.optInt("stargazers_count", 0),
-                defaultBranch = o.optString("default_branch", "main"),
-                private = o.optBoolean("private", false),
-            )
+    /**
+     * Creates a new repo under the token's own account. Needs a PAT with the "repo" scope
+     * (classic) or "Administration: write" (fine-grained). GitHub's create-repo endpoint
+     * always acts on the authenticated user's account — there's no separate "as org" call
+     * here, matching what a person can do from github.com's own "New repository" button.
+     */
+    suspend fun createRepo(
+        name: String, description: String = "", private: Boolean = true, token: String,
+    ): GitHubResult<GitHubRepoSummary> {
+        val body = JSONObject().apply {
+            put("name", name)
+            if (description.isNotBlank()) put("description", description)
+            put("private", private)
+            put("auto_init", true) // creates an initial commit so the repo is clonable right away
+        }
+        return when (val r = http("$BASE/user/repos", "POST", token, body.toString())) {
+            is GitHubResult.Error -> r
+            is GitHubResult.Success -> try {
+                GitHubResult.Success(parseRepoObject(JSONObject(r.data)))
+            } catch (e: Exception) {
+                GitHubResult.Error("Couldn't read GitHub's response: ${e.message}")
+            }
         }
     }
 
-    private suspend fun httpGet(urlStr: String, token: String?): GitHubResult<String> =
+    /**
+     * Permanently deletes a repo from GitHub. Needs a PAT with the "delete_repo" scope
+     * (classic) — GitHub rejects this call with a 403 for tokens that only have "repo",
+     * same as it would from the API docs' own example, so the error message from [http]
+     * surfaces that directly rather than this function guessing at scopes up front.
+     */
+    suspend fun deleteRepo(fullName: String, token: String): GitHubResult<Unit> {
+        return when (val r = http("$BASE/repos/$fullName", "DELETE", token)) {
+            is GitHubResult.Error -> r
+            is GitHubResult.Success -> GitHubResult.Success(Unit)
+        }
+    }
+
+    private fun parseRepoArray(arr: JSONArray): List<GitHubRepoSummary> =
+        (0 until arr.length()).map { i -> parseRepoObject(arr.getJSONObject(i)) }
+
+    private fun parseRepoObject(o: JSONObject): GitHubRepoSummary = GitHubRepoSummary(
+        fullName = o.getString("full_name"),
+        description = if (o.isNull("description")) null else o.optString("description").ifBlank { null },
+        cloneUrl = o.getString("clone_url"),
+        stars = o.optInt("stargazers_count", 0),
+        defaultBranch = o.optString("default_branch", "main"),
+        private = o.optBoolean("private", false),
+    )
+
+    private suspend fun http(
+        urlStr: String, method: String, token: String?, jsonBody: String? = null,
+    ): GitHubResult<String> =
         withContext(Dispatchers.IO) {
             var conn: HttpURLConnection? = null
             try {
                 conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
+                    requestMethod = method
                     connectTimeout = 10_000
                     readTimeout = 10_000
                     setRequestProperty("Accept", "application/vnd.github+json")
                     setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
                     if (!token.isNullOrBlank()) setRequestProperty("Authorization", "Bearer $token")
+                    if (jsonBody != null) {
+                        doOutput = true
+                        setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                        outputStream.use { it.write(jsonBody.toByteArray(Charsets.UTF_8)) }
+                    }
                 }
 
                 val code = conn.responseCode

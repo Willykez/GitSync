@@ -46,6 +46,7 @@ fun RepoListScreen(
     val state by vm.uiState.collectAsState()
     val snack = remember { SnackbarHostState() }
     var repoPendingDelete by remember { mutableStateOf<RepoEntity?>(null) }
+    var repoPendingGitHubDelete by remember { mutableStateOf<RepoEntity?>(null) }
     var repoPendingPullForce by remember { mutableStateOf<RepoEntity?>(null) }
     var repoPendingPushForce by remember { mutableStateOf<RepoEntity?>(null) }
     var showCloneSheet by remember { mutableStateOf(false) }
@@ -60,6 +61,7 @@ fun RepoListScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 hasStorageAccess = PublicStorage.hasStorageAccess(context)
+                if (hasStorageAccess) vm.scanForLocalRepos(silent = true)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -117,6 +119,9 @@ fun RepoListScreen(
                         Box {
                             IconButton(onClick = { showOverflowMenu = true }) { Icon(Icons.Filled.MoreVert, "More") }
                             DropdownMenu(expanded = showOverflowMenu, onDismissRequest = { showOverflowMenu = false }) {
+                                DropdownMenuItem(text = { Text("Scan for local repos") },
+                                    leadingIcon = { Icon(Icons.Filled.FolderSpecial, null) },
+                                    onClick = { showOverflowMenu = false; vm.scanForLocalRepos() })
                                 DropdownMenuItem(text = { Text("Discover on GitHub") },
                                     leadingIcon = { Icon(Icons.Filled.Explore, null) },
                                     onClick = { showOverflowMenu = false; onOpenDiscover() })
@@ -184,9 +189,26 @@ fun RepoListScreen(
             dismissButton = {
                 Row {
                     TextButton(onClick = { vm.deleteRepo(repo, false); repoPendingDelete = null }) { Text("Just Remove") }
+                    if (repo.cloneUrl.contains("github.com")) {
+                        TextButton(onClick = { repoPendingDelete = null; repoPendingGitHubDelete = repo }) {
+                            Text("Delete on GitHub…", color = StatusDeleted)
+                        }
+                    }
                     TextButton(onClick = { repoPendingDelete = null }) { Text("Cancel") }
                 }
             })
+    }
+
+    repoPendingGitHubDelete?.let { repo ->
+        com.willykez.repomaster.ui.screens.changes.ConfirmDialog(
+            "Delete ${repo.name} on GitHub?",
+            "This permanently deletes the repo from GitHub itself — not just from this app. " +
+                "There's no undo. The local files stay put; remove those separately if you want them gone too. " +
+                "Needs a credential whose token has the \"delete_repo\" scope.",
+            confirmLabel = "Delete on GitHub", danger = true,
+            onConfirm = { vm.deleteRepoOnGitHub(repo, alsoDeleteFilesLocally = false); repoPendingGitHubDelete = null },
+            onDismiss = { repoPendingGitHubDelete = null },
+        )
     }
 
     repoPendingPullForce?.let { repo ->

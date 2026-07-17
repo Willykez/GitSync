@@ -23,6 +23,7 @@ fun DiscoverScreen(onBack: () -> Unit, vm: DiscoverViewModel = viewModel()) {
     val state by vm.state.collectAsState()
     val snack = remember { SnackbarHostState() }
     var credentialMenuExpanded by remember { mutableStateOf(false) }
+    var showCreateDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.message) { state.message?.let { snack.showSnackbar(it); vm.dismissMessage() } }
 
@@ -31,6 +32,9 @@ fun DiscoverScreen(onBack: () -> Unit, vm: DiscoverViewModel = viewModel()) {
             TopAppBar(
                 title = { Text("Discover", fontWeight = FontWeight.SemiBold) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Back") } },
+                actions = {
+                    IconButton(onClick = { showCreateDialog = true }) { Icon(Icons.Filled.Add, "Create repo on GitHub") }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface, titleContentColor = MaterialTheme.colorScheme.onSurface, navigationIconContentColor = MaterialTheme.colorScheme.onSurface),
             )
         },
@@ -120,6 +124,82 @@ fun DiscoverScreen(onBack: () -> Unit, vm: DiscoverViewModel = viewModel()) {
             }
         }
     }
+
+    if (showCreateDialog) {
+        CreateRepoDialog(
+            isCreating = state.isCreating,
+            hasCredential = state.credentials.isNotEmpty(),
+            onDismiss = { showCreateDialog = false },
+            onCreate = { name, description, private ->
+                vm.createRepo(name, description, private)
+                showCreateDialog = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun CreateRepoDialog(
+    isCreating: Boolean,
+    hasCredential: Boolean,
+    onDismiss: () -> Unit,
+    onCreate: (name: String, description: String, private: Boolean) -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var isPrivate by remember { mutableStateOf(true) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New repo on GitHub") },
+        text = {
+            Column {
+                if (!hasCredential) {
+                    Text(
+                        "Add a credential with a GitHub token first (Credentials screen) — creating a repo needs one.",
+                        style = MaterialTheme.typography.bodySmall, color = StatusDeleted,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it },
+                    label = { Text("Repo name") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = description, onValueChange = { description = it },
+                    label = { Text("Description (optional)") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text("Private repo", modifier = Modifier.weight(1f))
+                    Switch(checked = isPrivate, onCheckedChange = { isPrivate = it })
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Creates it on GitHub and clones it here right away.",
+                    style = MaterialTheme.typography.bodySmall, color = StatusClean,
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onCreate(name.trim(), description.trim(), isPrivate) },
+                enabled = !isCreating && hasCredential && name.isNotBlank(),
+            ) {
+                if (isCreating) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Creating…")
+                } else {
+                    Text("Create")
+                }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !isCreating) { Text("Cancel") } },
+    )
 }
 
 @Composable

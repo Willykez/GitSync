@@ -5,6 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.willykez.repomaster.App
 import com.willykez.repomaster.data.db.entity.RepoEntity
+import com.willykez.repomaster.data.github.GitHubApi
+import com.willykez.repomaster.data.github.GitHubResult
 import com.willykez.repomaster.git.GitEngine
 import com.willykez.repomaster.git.GitResult
 import kotlinx.coroutines.flow.*
@@ -96,11 +98,69 @@ class RepoListViewModel(app: Application) : AndroidViewModel(app) {
 
     fun dismissSnackbar() { snackbarMessage.value = null }
 
+    /**
+     * Looks for repos sitting in the public repos folder that this app doesn't know about
+     * yet — dropped in with a file manager, copied over USB/MTP, checked out from Termux,
+     * etc — and registers each one. Called automatically whenever the repo list screen
+     * comes back to the foreground, and available as a manual action too.
+     */
+    fun scanForLocalRepos(silent: Boolean = false) {
+        viewModelScope.launch {
+            val added = repoRepository.scanForLocalRepos()
+            if (added > 0) {
+                snackbarMessage.value = if (added == 1) "Found 1 local repo" else "Found $added local repos"
+            } else if (!silent) {
+                snackbarMessage.value = "No new repos found"
+            }
+        }
+    }
+
     fun deleteRepo(repo: RepoEntity, alsoDeleteFiles: Boolean) {
         viewModelScope.launch {
             repoRepository.deleteRepo(repo)
             if (alsoDeleteFiles) File(repo.fullSavePath).deleteRecursively()
         }
+    }
+
+    /**
+     * Permanently deletes the repo on GitHub itself (not just from this app's list), then
+     * removes it from Repo Master too. Needs a credential with a token that has the
+     * "delete_repo" scope — GitHub rejects the call otherwise, and that rejection message
+     * is what surfaces in the snackbar, since guessing scopes ahead of time isn't reliable.
+     */
+    fun deleteRepoOnGitHub(repo: RepoEntity, alsoDeleteFilesLocally: Boolean) {
+        viewModelScope.launch {
+            val fullName = fullNameFromCloneUrl(repo.cloneUrl)
+            if (fullName == null) {
+                snackbarMessage.value = "Couldn't tell which GitHub repo this is from its remote URL"
+                return@launch
+            }
+            val cred = if (repo.credentialId != 0L) credentialRepository.getById(repo.credentialId) else null
+            val token = cred?.token
+            if (token.isNullOrBlank()) {
+                snackbarMessage.value = "Attach a credential with a GitHub token to this repo first"
+                return@launch
+            }
+
+            busyRepoId.value = repo.id
+            when (val r = GitHubApi.deleteRepo(fullName, token)) {
+                is GitHubResult.Error -> snackbarMessage.value = "GitHub: ${r.message}"
+                is GitHubResult.Success -> {
+                    repoRepository.deleteRepo(repo)
+                    if (alsoDeleteFilesLocally) File(repo.fullSavePath).deleteRecursively()
+                    snackbarMessage.value = "Deleted ${repo.name} on GitHub"
+                }
+            }
+            busyRepoId.value = null
+        }
+    }
+
+    /** Pulls "owner/repo" out of an https or ssh GitHub remote URL, or null if it isn't one. */
+    private fun fullNameFromCloneUrl(url: String): String? {
+        val cleaned = url.trim().removeSuffix(".git").removeSuffix("/")
+        val match = Regex("""github\.com[/:]([^/]+)/([^/]+)$""").find(cleaned) ?: return null
+        val (owner, repo) = match.destructured
+        return "$owner/$repo"
     }
 
     fun fetch(repo: RepoEntity) = remoteOp(repo) { git, cred ->

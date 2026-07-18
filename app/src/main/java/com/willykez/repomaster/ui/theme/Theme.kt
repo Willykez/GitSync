@@ -13,6 +13,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 
 // Dark is still Repo Master's default identity — a cockpit, not a document —
 // with a three-color accent system (violet/coral/emerald) and a wider shape
@@ -102,9 +105,9 @@ fun RepoMasterTheme(
     }
 
     MaterialTheme(
-        colorScheme = colorScheme,
-        typography = RepoMasterTypography,
-        shapes = RepoMasterShapes,
-        content = content,
-    )
+    colorScheme = colorScheme,
+    typography = RepoMasterTypography,
+    shapes = RepoMasterShapes,
+    content = content
+)
 }

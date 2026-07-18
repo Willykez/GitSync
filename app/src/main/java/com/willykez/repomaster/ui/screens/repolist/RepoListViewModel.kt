@@ -21,6 +21,7 @@ data class RepoListUiState(
     val snackbarMessage: String? = null,
     val searchQuery: String = "",
     val sortMode: RepoSortMode = RepoSortMode.RECENT,
+    val isRefreshing: Boolean = false,
     /** Uncommitted (staged + unstaged) file count per repo id, for the list badge. Absent
      * key = not computed yet (e.g. still opening the repo), not necessarily zero changes. */
     val changeCounts: Map<Long, Int> = emptyMap(),
@@ -54,13 +55,14 @@ class RepoListViewModel(app: Application) : AndroidViewModel(app) {
     private val searchQuery = MutableStateFlow("")
     private val sortMode = MutableStateFlow(RepoSortMode.RECENT)
     private val changeCounts = MutableStateFlow<Map<Long, Int>>(emptyMap())
+    private val isRefreshing = MutableStateFlow(false)
 
     private val filters = combine(searchQuery, sortMode, changeCounts) { q, s, c -> Triple(q, s, c) }
 
     val uiState: StateFlow<RepoListUiState> = combine(
-        repoRepository.allRepos, busyRepoId, snackbarMessage, filters,
-    ) { repos, busy, msg, (query, sort, counts) ->
-        RepoListUiState(repos, busy, msg, query, sort, counts)
+        repoRepository.allRepos, busyRepoId, snackbarMessage, filters, isRefreshing,
+    ) { repos, busy, msg, (query, sort, counts), refreshing ->
+        RepoListUiState(repos, busy, msg, query, sort, refreshing, counts)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RepoListUiState())
 
     init {
@@ -97,6 +99,25 @@ class RepoListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun dismissSnackbar() { snackbarMessage.value = null }
+
+    /**
+     * Pull-to-refresh on Home: rescans the local repos folder for anything new (same as
+     * [scanForLocalRepos]) and recomputes every repo's uncommitted-change count from
+     * scratch — not just the ones that haven't been computed yet — since a manual pull
+     * implies "things may have changed underneath you" (e.g. edited from another app,
+     * a `git` command run from Termux) rather than just "fill in what's missing".
+     */
+    fun refresh() {
+        viewModelScope.launch {
+            isRefreshing.value = true
+            val added = repoRepository.scanForLocalRepos()
+            repoRepository.allRepos.first().forEach { loadChangeCount(it) }
+            if (added > 0) {
+                snackbarMessage.value = if (added == 1) "Found 1 local repo" else "Found $added local repos"
+            }
+            isRefreshing.value = false
+        }
+    }
 
     /**
      * Looks for repos sitting in the public repos folder that this app doesn't know about

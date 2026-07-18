@@ -31,6 +31,7 @@ import com.willykez.repomaster.git.CommitInfo
 import com.willykez.repomaster.git.GitEngine
 import com.willykez.repomaster.git.GitResult
 import com.willykez.repomaster.ui.components.GlassCard
+import com.willykez.repomaster.ui.components.RepoTitleBlock
 import com.willykez.repomaster.ui.theme.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -94,6 +95,7 @@ fun computeCommitGraph(commits: List<CommitInfo>): List<GraphRowLayout> {
 
 data class LogUiState(
     val repoName: String = "",
+    val branch: String = "",
     val commits: List<CommitInfo> = emptyList(),
     val graph: List<GraphRowLayout> = emptyList(),
     val isLoading: Boolean = true,
@@ -108,7 +110,7 @@ class LogViewModel(app: Application) : AndroidViewModel(app) {
     fun load(repoId: Long) {
         viewModelScope.launch {
             val repo = repoRepo.getById(repoId) ?: return@launch
-            _state.value = _state.value.copy(repoName = repo.name, isLoading = true)
+            _state.value = _state.value.copy(repoName = repo.name, branch = repo.branch, isLoading = true)
             when (val gr = GitEngine.openRepo(repo.fullSavePath)) {
                 is GitResult.Error -> _state.value = _state.value.copy(isLoading = false, message = gr.message)
                 is GitResult.Success -> when (val lr = GitEngine.getLog(gr.data)) {
@@ -138,7 +140,7 @@ fun LogScreen(repoId: Long, onBack: () -> Unit, onOpenDiff: (Long, String) -> Un
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(state.repoName.ifBlank { "Log" }, fontWeight = FontWeight.SemiBold) },
+                title = { RepoTitleBlock(state.repoName.ifBlank { "History" }, state.branch) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Back") } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface, titleContentColor = MaterialTheme.colorScheme.onSurface, navigationIconContentColor = MaterialTheme.colorScheme.onSurface),
             )

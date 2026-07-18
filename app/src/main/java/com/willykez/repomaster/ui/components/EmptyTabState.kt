@@ -18,7 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.willykez.repomaster.ui.theme.StatusClean
 
-/** Shown on the Changes/History tabs before any repo has been picked from the Repos tab. */
+/** Shown on any repo-scoped tab (Changes/History/Tools/Files) if it's somehow reached
+ *  with no repo selected — normally only possible via a restored/odd nav state, since the
+ *  ordinary path is picking a repo from Home first. */
 @Composable
 fun EmptyTabState(message: String, onGoToRepos: () -> Unit) {
     Column(
@@ -30,6 +32,6 @@ fun EmptyTabState(message: String, onGoToRepos: () -> Unit) {
         Spacer(Modifier.height(16.dp))
         Text(message, style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(20.dp))
-        Button(onClick = onGoToRepos) { Text("Go to Repos") }
+        Button(onClick = onGoToRepos) { Text("Go to Home") }
     }
 }

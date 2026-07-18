@@ -31,6 +31,7 @@ import com.willykez.repomaster.git.FileNode
 import com.willykez.repomaster.git.GitEngine
 import com.willykez.repomaster.git.GitResult
 import com.willykez.repomaster.ui.components.GlassCard
+import com.willykez.repomaster.ui.components.RepoTitleBlock
 import com.willykez.repomaster.ui.screens.changes.ConfirmDialog
 import com.willykez.repomaster.ui.screens.changes.SingleInputDialog
 import com.willykez.repomaster.ui.theme.Amber
@@ -314,10 +315,11 @@ fun FileExplorerScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        state.relativePath.ifBlank { state.repo?.name ?: "Files" }.substringAfterLast('/'),
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                    if (state.relativePath.isBlank()) {
+                        RepoTitleBlock(state.repo?.name ?: "Files", state.repo?.branch)
+                    } else {
+                        Text(state.relativePath.substringAfterLast('/'), fontWeight = FontWeight.SemiBold)
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }

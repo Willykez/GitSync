@@ -1,37 +1,27 @@
 package com.willykez.repomaster.ui.screens.more
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.expandVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.FolderOff
-import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Warning
@@ -40,7 +30,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -58,6 +47,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.willykez.repomaster.App
 import com.willykez.repomaster.ui.components.GlassCard
+import com.willykez.repomaster.ui.components.RepoTitleBlock
 import com.willykez.repomaster.ui.theme.CommandBlue
 import com.willykez.repomaster.ui.theme.Emerald
 import com.willykez.repomaster.ui.theme.SignalGold
@@ -128,7 +118,10 @@ fun MoreScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Tools", fontWeight = FontWeight.Bold) },
+                title = {
+                    if (repoInfo != null) RepoTitleBlock(repoInfo!!.first, repoInfo!!.second)
+                    else Text("Tools", fontWeight = FontWeight.Bold)
+                },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to repos") } },
             )
         },
@@ -143,14 +136,6 @@ fun MoreScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxSize().padding(pad),
             ) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    AnimatedVisibility(
-                        visible = repoInfo != null,
-                        enter = fadeIn(tween(200)) + expandVertically(),
-                    ) {
-                        ActiveRepoHeader(name = repoInfo?.first, branch = repoInfo?.second)
-                    }
-                }
                 categories.forEach { category ->
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         SectionLabel(category.title)
@@ -158,38 +143,6 @@ fun MoreScreen(
                     items(category.tools) { tool ->
                         ToolCard(tool, accent = category.accent)
                     }
-                }
-            }
-        }
-    }
-}
-
-/** Always-visible reminder of which repo these tools act on — the whole
- *  reason this screen used to feel confusing was that it was silent about
- *  that until you tapped something. */
-@Composable
-private fun ActiveRepoHeader(name: String?, branch: String?) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = MaterialTheme.shapes.large,
-        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
-    ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = CommandBlue.copy(alpha = 0.18f), shape = CircleShape) {
-                Icon(
-                    Icons.Filled.FolderOpen, null, tint = CommandBlue,
-                    modifier = Modifier.padding(8.dp).size(18.dp),
-                )
-            }
-            Spacer(Modifier.width(10.dp))
-            Column {
-                Text(
-                    name ?: "Loading…",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                if (!branch.isNullOrBlank()) {
-                    Text(branch, style = MaterialTheme.typography.labelSmall, color = StatusClean)
                 }
             }
         }
@@ -207,7 +160,7 @@ private fun NoRepoSelected(modifier: Modifier = Modifier) {
         Spacer(Modifier.height(12.dp))
         Text("No repo selected", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Pick a repo from the Repos tab to see its tools here.",
+            "Pick a repo from Home to see its tools here.",
             style = MaterialTheme.typography.bodyMedium,
             color = StatusClean,
             textAlign = TextAlign.Center,

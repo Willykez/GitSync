@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ExperimentalMaterialApi
-import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.material.icons.Icons
@@ -35,6 +34,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.willykez.repomaster.data.PublicStorage
 import com.willykez.repomaster.data.db.entity.RepoEntity
 import com.willykez.repomaster.ui.components.GlassCard
+import com.willykez.repomaster.ui.components.WeaveRefreshIndicator
 import com.willykez.repomaster.ui.screens.clone.CloneScreen
 import com.willykez.repomaster.ui.theme.*
 import java.text.DateFormat
@@ -151,65 +151,59 @@ fun RepoListScreen(
         },
         snackbarHost = { SnackbarHost(snack) { d -> Snackbar(d) } },
     ) { pad ->
-        Box(
+        Column(
             Modifier
                 .fillMaxSize()
                 .padding(pad)
                 .pullRefresh(pullRefreshState),
         ) {
-            Column(Modifier.fillMaxSize()) {
-                if (!hasStorageAccess) {
-                    StorageAccessBanner(onGrant = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            context.startActivity(PublicStorage.allFilesAccessIntent(context))
-                        }
-                    })
-                }
-
-                val visibleRepos = state.visibleRepos
-
-                if (state.repos.isEmpty()) {
-                    EmptyState(Modifier.weight(1f), onAddRepo = { showCloneSheet = true }, onDiscover = onOpenDiscover)
-                } else if (visibleRepos.isEmpty()) {
-                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Text("No repos match \"${state.searchQuery}\"", color = StatusClean)
+            if (!hasStorageAccess) {
+                StorageAccessBanner(onGrant = {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        context.startActivity(PublicStorage.allFilesAccessIntent(context))
                     }
-                } else {
-                    LazyColumn(
-                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 80.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                    ) {
-                        items(visibleRepos, key = { it.id }) { repo ->
-                            RepoCard(
-                                repo = repo, isBusy = state.busyRepoId == repo.id,
-                                changeCount = state.changeCounts[repo.id],
-                                onTap = { onOpenRepo(repo.id) },
-                                onLongPress = { repoPendingDelete = repo },
-                                onPull = { vm.pull(repo) }, onPush = { vm.push(repo) },
-                                onFetch = { vm.fetch(repo) },
-                                onRequestPullForce = { repoPendingPullForce = repo },
-                                onRequestPushForce = { repoPendingPushForce = repo },
-                                // Springy placement animation: repos entering, leaving, or
-                                // reordering (new sort mode, freshly-scanned local repo,
-                                // deletion) settle into place with a little bounce instead
-                                // of snapping, and fade in/out rather than popping.
-                                itemModifier = Modifier.animateItem(
-                                    fadeInSpec = tween(220),
-                                    placementSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-                                    fadeOutSpec = tween(150),
-                                ),
-                            )
-                        }
+                })
+            }
+
+            WeaveRefreshIndicator(refreshing = state.isRefreshing, progress = pullRefreshState.progress)
+
+            val visibleRepos = state.visibleRepos
+
+            if (state.repos.isEmpty()) {
+                EmptyState(Modifier.weight(1f), onAddRepo = { showCloneSheet = true }, onDiscover = onOpenDiscover)
+            } else if (visibleRepos.isEmpty()) {
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text("No repos match \"${state.searchQuery}\"", color = StatusClean)
+                }
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 80.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                ) {
+                    items(visibleRepos, key = { it.id }) { repo ->
+                        RepoCard(
+                            repo = repo, isBusy = state.busyRepoId == repo.id,
+                            changeCount = state.changeCounts[repo.id],
+                            onTap = { onOpenRepo(repo.id) },
+                            onLongPress = { repoPendingDelete = repo },
+                            onPull = { vm.pull(repo) }, onPush = { vm.push(repo) },
+                            onFetch = { vm.fetch(repo) },
+                            onRequestPullForce = { repoPendingPullForce = repo },
+                            onRequestPushForce = { repoPendingPushForce = repo },
+                            // Springy placement animation: repos entering, leaving, or
+                            // reordering (new sort mode, freshly-scanned local repo,
+                            // deletion) settle into place with a little bounce instead
+                            // of snapping, and fade in/out rather than popping.
+                            itemModifier = Modifier.animateItem(
+                                fadeInSpec = tween(220),
+                                placementSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+                                fadeOutSpec = tween(150),
+                            ),
+                        )
                     }
                 }
             }
-
-            PullRefreshIndicator(
-                refreshing = state.isRefreshing,
-                state = pullRefreshState,
-                modifier = Modifier.align(Alignment.TopCenter),
-            )
         }
     }
 

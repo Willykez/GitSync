@@ -16,7 +16,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ExperimentalMaterialApi
-import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.material.icons.Icons
@@ -37,6 +36,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.willykez.repomaster.git.GitFileEntry
 import com.willykez.repomaster.git.GitFileStatus
 import com.willykez.repomaster.ui.components.GlassCard
+import com.willykez.repomaster.ui.components.WeaveRefreshIndicator
 import com.willykez.repomaster.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalMaterialApi::class)
@@ -124,25 +124,25 @@ fun ChangesScreen(
         },
         snackbarHost = { SnackbarHost(snack) { d -> Snackbar(d) } },
     ) { pad ->
-        Box(
+        Column(
             Modifier
                 .fillMaxSize()
                 .padding(pad)
                 .pullRefresh(pullRefreshState),
         ) {
-            Column(Modifier.fillMaxSize()) {
+            WeaveRefreshIndicator(refreshing = state.isLoading, progress = pullRefreshState.progress)
 
-                AnimatedVisibility(
-                    visible = state.hasConflicts,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically(),
-                ) {
-                    Surface(color = StatusDeleted.copy(alpha = 0.15f)) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(Icons.Filled.Warning, null, tint = StatusDeleted, modifier = Modifier.size(18.dp))
+            AnimatedVisibility(
+                visible = state.hasConflicts,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
+                Surface(color = StatusDeleted.copy(alpha = 0.15f)) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Filled.Warning, null, tint = StatusDeleted, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(
                                 "Merge conflicts need resolving",
@@ -232,13 +232,6 @@ fun ChangesScreen(
                     onCommit = vm::commit,
                     onPush = vm::push,
                 )
-            }
-
-            PullRefreshIndicator(
-                refreshing = state.isLoading,
-                state = pullRefreshState,
-                modifier = Modifier.align(Alignment.TopCenter),
-            )
         }
     }
 

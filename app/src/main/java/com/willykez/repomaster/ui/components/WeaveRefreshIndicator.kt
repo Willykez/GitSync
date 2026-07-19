@@ -45,9 +45,15 @@ fun WeaveRefreshIndicator(
     progress: Float,
     modifier: Modifier = Modifier,
 ) {
+    // How far past the release threshold (progress = 1) an overpull keeps stretching the
+    // pill before it maxes out. Raise this to require a longer drag for full stretch;
+    // lower it to reach full stretch sooner.
+    val overpullRange = 2.4f
+
     // Smooths out the raw drag value so releasing early/late eases rather than snapping,
-    // and gives the collapse-back-to-rest its bounce.
-    val target = if (refreshing) 1f else progress.coerceIn(0f, 1.4f)
+    // and gives the collapse-back-to-rest its bounce. While actually refreshing (finger
+    // already released), it settles at a modest fixed height rather than the full stretch.
+    val target = if (refreshing) 0.55f else progress.coerceIn(0f, overpullRange)
     val animatedProgress by animateFloatAsState(
         targetValue = target,
         animationSpec = if (refreshing || target > 0f) {
@@ -61,9 +67,13 @@ fun WeaveRefreshIndicator(
     if (animatedProgress <= 0.001f && !refreshing) return
 
     val pillWidth = 24.dp
-    val maxHeight = 56.dp
-    val pillHeight = lerp(0.dp, maxHeight, animatedProgress.coerceIn(0f, 1f))
-    val labelAlpha = ((animatedProgress - 0.65f) / 0.35f).coerceIn(0f, 1f)
+    // This is the main length control — raise it for a longer stretch, lower it to keep
+    // the pill short. The pill reaches this height only once animatedProgress reaches
+    // [overpullRange] above (i.e. a real overpull past the release point, not just barely
+    // crossing it), so the two work together to set the overall feel.
+    val maxHeight = 220.dp
+    val pillHeight = lerp(0.dp, maxHeight, (animatedProgress / overpullRange).coerceIn(0f, 1f))
+    val labelAlpha = if (refreshing) 1f else ((progress - 0.65f) / 0.35f).coerceIn(0f, 1f)
 
     // A gentle continuous spin for the dot inside the pill once actually refreshing —
     // the pull gesture itself communicates "loading" via stretch; this communicates

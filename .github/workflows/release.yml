@@ -42,7 +42,7 @@ jobs:
 
 
       # -------------------------------------------------------
-      # Decode permanent release keystore
+      # Decode permanent signing keystore
       # -------------------------------------------------------
 
       - name: Configure release keystore
@@ -56,32 +56,32 @@ jobs:
         run: |
 
           if [ -z "$KEYSTORE_B64" ]; then
-            echo "::error::Missing KEYSTORE_B64 secret"
+            echo "::error::KEYSTORE_B64 secret is missing"
             exit 1
           fi
 
 
           if [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
-            echo "::error::Missing signing passwords"
+            echo "::error::Signing passwords are missing"
             exit 1
           fi
 
 
           if [ "$STORE_PASSWORD" != "$KEY_PASSWORD" ]; then
-            echo "::error::STORE_PASSWORD and KEY_PASSWORD must match for PKCS12 keystore"
+            echo "::error::STORE_PASSWORD and KEY_PASSWORD must be identical for PKCS12 keystores"
             exit 1
           fi
 
 
-          KEYSTORE_PATH="$RUNNER_TEMP/repomaster-release.keystore"
+          KEYSTORE_PATH="$RUNNER_TEMP/gitsync-release.keystore"
 
 
           echo "$KEYSTORE_B64" | base64 --decode > "$KEYSTORE_PATH"
 
 
 
-          if [ ! -f "$KEYSTORE_PATH" ]; then
-            echo "::error::Keystore creation failed"
+          if [ ! -s "$KEYSTORE_PATH" ]; then
+            echo "::error::Keystore file was not created"
             exit 1
           fi
 
@@ -110,16 +110,16 @@ jobs:
         run: |
 
           gradle assembleRelease \
-            -PREPOMASTER_RELEASE_STORE_FILE="${{ steps.keystore.outputs.keystore_path }}" \
-            -PREPOMASTER_RELEASE_STORE_PASSWORD="${{ steps.keystore.outputs.keystore_password }}" \
-            -PREPOMASTER_RELEASE_KEY_ALIAS="${{ steps.keystore.outputs.key_alias }}" \
-            -PREPOMASTER_RELEASE_KEY_PASSWORD="${{ steps.keystore.outputs.key_password }}" \
+            -PGITSYNC_RELEASE_STORE_FILE="${{ steps.keystore.outputs.keystore_path }}" \
+            -PGITSYNC_RELEASE_STORE_PASSWORD="${{ steps.keystore.outputs.keystore_password }}" \
+            -PGITSYNC_RELEASE_KEY_ALIAS="${{ steps.keystore.outputs.key_alias }}" \
+            -PGITSYNC_RELEASE_KEY_PASSWORD="${{ steps.keystore.outputs.key_password }}" \
             --no-daemon
 
 
 
       # -------------------------------------------------------
-      # Find generated APK
+      # Locate APK
       # -------------------------------------------------------
 
       - name: Locate APK
@@ -137,7 +137,7 @@ jobs:
           fi
 
 
-          echo "APK found:"
+          echo "Found APK:"
           echo "$APK_PATH"
 
 
@@ -149,13 +149,13 @@ jobs:
       # Upload artifact
       # -------------------------------------------------------
 
-      - name: Upload release APK artifact
+      - name: Upload APK artifact
 
         uses: actions/upload-artifact@v4
 
         with:
 
-          name: repomaster-release-apk
+          name: gitsync-release-apk
 
           path: ${{ steps.apk.outputs.path }}
 
@@ -164,7 +164,7 @@ jobs:
 
 
       # -------------------------------------------------------
-      # Create GitHub Release from tag
+      # Create GitHub Release from version tag
       # -------------------------------------------------------
 
       - name: Create GitHub Release

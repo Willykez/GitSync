@@ -158,22 +158,13 @@ jobs:
       # -------------------------------------------------------
 
       - name: Build release APK
-
-
-        run: |
-
-
-          gradle assembleRelease \
-
-            -PREPOMASTER_RELEASE_STORE_FILE="${{ steps.keystore.outputs.keystore_path }}" \
-
-            -PREPOMASTER_RELEASE_STORE_PASSWORD="${{ steps.keystore.outputs.keystore_password }}" \
-
-            -PREPOMASTER_RELEASE_KEY_ALIAS="${{ steps.keystore.outputs.key_alias }}" \
-
-            -PREPOMASTER_RELEASE_KEY_PASSWORD="${{ steps.keystore.outputs.key_password }}" \
-
-            --no-daemon
+  run: |
+    gradle assembleRelease \
+      -PREPOMASTER_RELEASE_STORE_FILE="${{ steps.keystore.outputs.keystore_path }}" \
+      -PREPOMASTER_RELEASE_STORE_PASSWORD="${{ steps.keystore.outputs.keystore_password }}" \
+      -PREPOMASTER_RELEASE_KEY_ALIAS="${{ steps.keystore.outputs.key_alias }}" \
+      -PREPOMASTER_RELEASE_KEY_PASSWORD="${{ steps.keystore.outputs.key_password }}" \
+      --no-daemon
 
 
 

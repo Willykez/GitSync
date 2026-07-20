@@ -18,22 +18,62 @@ data class GitHubRepoSummary(
     val private: Boolean,
 )
 
+/** One Actions run — a single execution of a workflow, triggered by a push, a PR, a manual
+ *  dispatch, etc. [status] is the lifecycle state ("queued"/"in_progress"/"completed"/
+ *  "waiting"); [conclusion] is only meaningful once status is "completed"
+ *  ("success"/"failure"/"cancelled"/"skipped"/"timed_out"/"action_required"/null). */
+data class WorkflowRun(
+    val id: Long,
+    val name: String,
+    val displayTitle: String,
+    val status: String,
+    val conclusion: String?,
+    val headBranch: String,
+    val headSha: String,
+    val event: String,
+    val htmlUrl: String,
+    val createdAt: String,
+    val updatedAt: String,
+) {
+    val isActive: Boolean get() = status != "completed"
+}
+
+data class WorkflowJob(
+    val id: Long,
+    val name: String,
+    val status: String,
+    val conclusion: String?,
+    val htmlUrl: String,
+)
+
 sealed class GitHubResult<out T> {
     data class Success<T>(val data: T) : GitHubResult<T>()
     data class Error(val message: String) : GitHubResult<Nothing>()
 }
 
+/** Pulls "owner/repo" out of an https or ssh GitHub remote URL, or null if it isn't one.
+ *  Shared by anything that needs to turn a repo's stored clone URL into a GitHub API path —
+ *  deleting a repo, checking its Actions runs, etc — so there's exactly one place that
+ *  knows this parsing, not a copy per feature. */
+fun githubFullNameFromUrl(url: String): String? {
+    val cleaned = url.trim().removeSuffix(".git").removeSuffix("/")
+    val match = Regex("""github\.com[/:]([^/]+)/([^/]+)$""").find(cleaned) ?: return null
+    val (owner, repo) = match.destructured
+    return "$owner/$repo"
+}
+
 /**
- * Minimal GitHub REST client — just enough to search public repos and list a signed-in
- * user's own repos, so cloning can be driven from inside the app instead of copying a URL
- * off github.com in a browser. Deliberately built on HttpURLConnection + org.json (both
- * already part of the Android platform) rather than adding Retrofit/OkHttp/Gson for what's
- * really just two GET endpoints.
+ * Minimal GitHub REST client — just enough to search public repos, list/create/delete a
+ * signed-in user's own repos, and drive Actions (list/inspect runs, view job logs, re-run,
+ * cancel) from inside the app instead of tabbing out to a browser. Deliberately built on
+ * HttpURLConnection + org.json (both already part of the Android platform) rather than
+ * adding Retrofit/OkHttp/Gson for what's really a handful of REST calls.
  *
  * Search works with no token (GitHub's public search API is unauthenticated, just rate
- * limited — 10 requests/minute per IP). "My repos" needs a token, since it's inherently
- * about a specific account: pass any saved credential's PAT and it works the same way it
- * already does for git push/pull (needs at least the "repo" scope to list private repos).
+ * limited — 10 requests/minute per IP). Everything else needs a token, since it's
+ * inherently about a specific account/repo: pass any saved credential's PAT and it works
+ * the same way it already does for git push/pull. Actions endpoints need at least the
+ * "repo" scope (classic) or "Actions: read/write" (fine-grained) depending on the call.
  */
 object GitHubApi {
     private const val BASE = "https://api.github.com"
@@ -101,6 +141,140 @@ object GitHubApi {
             is GitHubResult.Success -> GitHubResult.Success(Unit)
         }
     }
+
+    // ── Actions ──────────────────────────────────────────────────────────────
+
+    /** Most recent runs for the repo overall, newest first — used for the Actions tab's run
+     *  list. */
+    suspend fun listWorkflowRuns(fullName: String, token: String, perPage: Int = 20): GitHubResult<List<WorkflowRun>> {
+        val url = "$BASE/repos/$fullName/actions/runs?per_page=$perPage"
+        return when (val r = http(url, "GET", token)) {
+            is GitHubResult.Error -> r
+            is GitHubResult.Success -> try {
+                val arr = JSONObject(r.data).getJSONArray("workflow_runs")
+                GitHubResult.Success((0 until arr.length()).map { parseRun(arr.getJSONObject(it)) })
+            } catch (e: Exception) {
+                GitHubResult.Error("Couldn't read GitHub's response: ${e.message}")
+            }
+        }
+    }
+
+    /** Runs triggered by one specific commit — used to show "did my last push's build pass?"
+     *  right on the Changes screen without opening the full Actions list. */
+    suspend fun listWorkflowRunsForCommit(fullName: String, sha: String, token: String): GitHubResult<List<WorkflowRun>> {
+        val url = "$BASE/repos/$fullName/actions/runs?head_sha=$sha&per_page=10"
+        return when (val r = http(url, "GET", token)) {
+            is GitHubResult.Error -> r
+            is GitHubResult.Success -> try {
+                val arr = JSONObject(r.data).getJSONArray("workflow_runs")
+                GitHubResult.Success((0 until arr.length()).map { parseRun(arr.getJSONObject(it)) })
+            } catch (e: Exception) {
+                GitHubResult.Error("Couldn't read GitHub's response: ${e.message}")
+            }
+        }
+    }
+
+    suspend fun listJobsForRun(fullName: String, runId: Long, token: String): GitHubResult<List<WorkflowJob>> {
+        val url = "$BASE/repos/$fullName/actions/runs/$runId/jobs"
+        return when (val r = http(url, "GET", token)) {
+            is GitHubResult.Error -> r
+            is GitHubResult.Success -> try {
+                val arr = JSONObject(r.data).getJSONArray("jobs")
+                GitHubResult.Success((0 until arr.length()).map { i ->
+                    val o = arr.getJSONObject(i)
+                    WorkflowJob(
+                        id = o.getLong("id"),
+                        name = o.optString("name", "Job"),
+                        status = o.optString("status", "unknown"),
+                        conclusion = if (o.isNull("conclusion")) null else o.optString("conclusion").ifBlank { null },
+                        htmlUrl = o.optString("html_url", ""),
+                    )
+                })
+            } catch (e: Exception) {
+                GitHubResult.Error("Couldn't read GitHub's response: ${e.message}")
+            }
+        }
+    }
+
+    /** Re-runs every job in the run from scratch. */
+    suspend fun rerunWorkflow(fullName: String, runId: Long, token: String): GitHubResult<Unit> =
+        when (val r = http("$BASE/repos/$fullName/actions/runs/$runId/rerun", "POST", token)) {
+            is GitHubResult.Error -> r
+            is GitHubResult.Success -> GitHubResult.Success(Unit)
+        }
+
+    /** Re-runs only the jobs that failed, leaving the ones that already passed alone —
+     *  usually what you want after fixing a build error, since it's faster and doesn't
+     *  re-burn CI minutes on steps that were already fine. */
+    suspend fun rerunFailedJobs(fullName: String, runId: Long, token: String): GitHubResult<Unit> =
+        when (val r = http("$BASE/repos/$fullName/actions/runs/$runId/rerun-failed-jobs", "POST", token)) {
+            is GitHubResult.Error -> r
+            is GitHubResult.Success -> GitHubResult.Success(Unit)
+        }
+
+    suspend fun cancelWorkflowRun(fullName: String, runId: Long, token: String): GitHubResult<Unit> =
+        when (val r = http("$BASE/repos/$fullName/actions/runs/$runId/cancel", "POST", token)) {
+            is GitHubResult.Error -> r
+            is GitHubResult.Success -> GitHubResult.Success(Unit)
+        }
+
+    /**
+     * Plain-text log for one job — this is the piece that actually replaces "go read the
+     * error on GitHub". GitHub's job-logs endpoint responds with a redirect to a pre-signed
+     * blob storage URL; that URL must be fetched *without* our GitHub Authorization header
+     * (some storage backends reject a request carrying an auth header they don't recognize),
+     * so the redirect is followed manually here instead of leaving it to
+     * HttpURLConnection's default auto-follow, which would forward every header along.
+     */
+    suspend fun getJobLogs(fullName: String, jobId: Long, token: String): GitHubResult<String> =
+        withContext(Dispatchers.IO) {
+            var conn: HttpURLConnection? = null
+            try {
+                conn = (URL("$BASE/repos/$fullName/actions/jobs/$jobId/logs").openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = false
+                    requestMethod = "GET"
+                    connectTimeout = 10_000
+                    readTimeout = 15_000
+                    setRequestProperty("Accept", "application/vnd.github+json")
+                    setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+                    setRequestProperty("Authorization", "Bearer $token")
+                }
+                var code = conn.responseCode
+
+                if (code in 300..399) {
+                    val location = conn.getHeaderField("Location")
+                    conn.disconnect()
+                    if (location.isNullOrBlank()) return@withContext GitHubResult.Error("GitHub didn't provide a log location")
+                    conn = (URL(location).openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"; connectTimeout = 10_000; readTimeout = 15_000
+                    }
+                    code = conn.responseCode
+                }
+
+                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                val text = stream?.bufferedReader()?.use { it.readText() } ?: ""
+                if (code !in 200..299) GitHubResult.Error("GitHub returned HTTP $code fetching logs")
+                else GitHubResult.Success(text)
+            } catch (e: Exception) {
+                GitHubResult.Error(e.message ?: "Network error fetching logs")
+            } finally {
+                conn?.disconnect()
+            }
+        }
+
+    private fun parseRun(o: JSONObject): WorkflowRun = WorkflowRun(
+        id = o.getLong("id"),
+        name = o.optString("name", "Workflow"),
+        displayTitle = o.optString("display_title", o.optString("name", "Workflow")),
+        status = o.optString("status", "unknown"),
+        conclusion = if (o.isNull("conclusion")) null else o.optString("conclusion").ifBlank { null },
+        headBranch = o.optString("head_branch", ""),
+        headSha = o.optString("head_sha", ""),
+        event = o.optString("event", ""),
+        htmlUrl = o.optString("html_url", ""),
+        createdAt = o.optString("created_at", ""),
+        updatedAt = o.optString("updated_at", ""),
+    )
 
     private fun parseRepoArray(arr: JSONArray): List<GitHubRepoSummary> =
         (0 until arr.length()).map { i -> parseRepoObject(arr.getJSONObject(i)) }

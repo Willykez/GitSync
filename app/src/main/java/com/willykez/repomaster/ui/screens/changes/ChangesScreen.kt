@@ -37,6 +37,8 @@ import com.willykez.repomaster.git.GitFileEntry
 import com.willykez.repomaster.git.GitFileStatus
 import com.willykez.repomaster.ui.components.GlassCard
 import com.willykez.repomaster.ui.components.WeaveRefreshIndicator
+import com.willykez.repomaster.ui.screens.actions.StatusIcon
+import com.willykez.repomaster.ui.screens.actions.statusColor
 import com.willykez.repomaster.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalMaterialApi::class)
@@ -45,6 +47,7 @@ fun ChangesScreen(
     repoId: Long,
     onBack: () -> Unit,
     onOpenConflicts: () -> Unit,
+    onOpenActions: () -> Unit,
     onOpenDiff: (path: String, staged: Boolean) -> Unit,
     vm: ChangesViewModel = viewModel(),
 ) {
@@ -100,6 +103,19 @@ fun ChangesScreen(
                     IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Back") }
                 },
                 actions = {
+                    // Latest Actions run for this repo — the whole point is not having to
+                    // leave the app to see whether the build passed after a push. Tapping
+                    // it opens the full Actions tab for run details / logs / re-run.
+                    if (state.ciApplicable) {
+                        val run = state.ciRun
+                        IconButton(onClick = onOpenActions) {
+                            if (run == null) {
+                                Icon(Icons.Filled.PlayCircleOutline, "Actions", tint = StatusClean)
+                            } else {
+                                StatusIcon(run.status, run.conclusion, statusColor(run.status, run.conclusion), size = 22.dp)
+                            }
+                        }
+                    }
                     // Push is the #1 reason someone opens this menu — surface it directly
                     // instead of burying it in an overflow list.
                     IconButton(onClick = vm::push, enabled = !state.isWorking) {

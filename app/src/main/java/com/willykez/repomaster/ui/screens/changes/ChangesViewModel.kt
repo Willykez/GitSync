@@ -5,6 +5,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.willykez.repomaster.App
 import com.willykez.repomaster.data.db.entity.RepoEntity
+import com.willykez.repomaster.data.github.GitHubApi
+import com.willykez.repomaster.data.github.GitHubResult
+import com.willykez.repomaster.data.github.WorkflowRun
+import com.willykez.repomaster.data.github.githubFullNameFromUrl
 import com.willykez.repomaster.git.GitEngine
 import com.willykez.repomaster.git.GitFileEntry
 import com.willykez.repomaster.git.GitResult
@@ -27,6 +31,10 @@ data class ChangesUiState(
     val isWorking: Boolean = false,
     val message: String? = null,
     val hasConflicts: Boolean = false,
+    /** Latest Actions run for this repo, if it has a GitHub remote and a token attached —
+     *  null just means "not known yet / not applicable", not "no runs". */
+    val ciRun: WorkflowRun? = null,
+    val ciApplicable: Boolean = false,
 )
 
 class ChangesViewModel(app: Application) : AndroidViewModel(app) {
@@ -46,6 +54,7 @@ class ChangesViewModel(app: Application) : AndroidViewModel(app) {
             val repo = repoRepo.getById(id) ?: return@launch
             _state.value = _state.value.copy(repo = repo, isLoading = true)
             openAndRefresh(repo)
+            refreshCiStatus(repo)
         }
     }
 
@@ -141,6 +150,35 @@ class ChangesViewModel(app: Application) : AndroidViewModel(app) {
     fun resetMixed() = gitOp { g -> GitEngine.resetMixed(g) }
     fun resetHard() = gitOp { g -> GitEngine.resetHard(g) }
 
+    /**
+     * Checks the latest GitHub Actions run for this repo, if it has a GitHub remote and a
+     * credential with a token attached. Silent on failure (no snackbar, no error state) —
+     * this is a nice-to-have status chip, not a git operation the person is waiting on, so
+     * a rate limit or network blip here shouldn't interrupt anything.
+     */
+    private fun refreshCiStatus(repo: RepoEntity) {
+        val fullName = githubFullNameFromUrl(repo.cloneUrl)
+        if (fullName == null) {
+            _state.value = _state.value.copy(ciApplicable = false, ciRun = null)
+            return
+        }
+        viewModelScope.launch {
+            val token = if (repo.credentialId != 0L) credRepo.getById(repo.credentialId)?.token else null
+            if (token.isNullOrBlank()) {
+                _state.value = _state.value.copy(ciApplicable = false, ciRun = null)
+                return@launch
+            }
+            _state.value = _state.value.copy(ciApplicable = true)
+            when (val r = GitHubApi.listWorkflowRuns(fullName, token, perPage = 1)) {
+                is GitHubResult.Success -> _state.value = _state.value.copy(ciRun = r.data.firstOrNull())
+                is GitHubResult.Error -> Unit
+            }
+        }
+    }
+
+    /** Manual re-check, e.g. from tapping the CI chip's refresh affordance. */
+    fun refreshCiStatus() { _state.value.repo?.let { refreshCiStatus(it) } }
+
     fun dismissMessage() { _state.value = _state.value.copy(message = null) }
 
     /** For snackbar messages triggered purely from the UI layer (e.g. "Branch name copied"
@@ -189,6 +227,7 @@ class ChangesViewModel(app: Application) : AndroidViewModel(app) {
                     val msg = when (val d = r.data) { is String -> d; else -> "Done" }
                     ok(msg)
                     openAndRefresh(repo)
+                    refreshCiStatus(repo)
                 }
             }
             _state.value = _state.value.copy(isWorking = false)

@@ -79,6 +79,7 @@ object Routes {
     const val EDITOR     = "editor/{repoId}/{encodedPath}"
     const val CONFLICTS  = "conflicts/{repoId}"
     const val BLAME      = "blame/{repoId}/{encodedPath}"
+    const val ACTIONS    = "actions/{repoId}"
 
     fun branches(id: Long) = "branches/$id"
     fun stash(id: Long)    = "stash/$id"
@@ -92,6 +93,7 @@ object Routes {
     fun editor(id: Long, path: String) =
         "editor/$id/${java.net.URLEncoder.encode(path, "UTF-8")}"
     fun conflicts(id: Long) = "conflicts/$id"
+    fun actions(id: Long) = "actions/$id"
     fun blame(id: Long, path: String) = "blame/$id/${java.net.URLEncoder.encode(path, "UTF-8")}"
 }
 
@@ -211,6 +213,7 @@ private fun RepoMasterNavHost(
                     repoId = id,
                     onBack = { nav.navigate(Routes.REPO_LIST) },
                     onOpenConflicts = { nav.navigate(Routes.conflicts(id)) },
+                    onOpenActions = { nav.navigate(Routes.actions(id)) },
                     onOpenDiff = { path, staged -> nav.navigate(Routes.diff(id, path, staged)) },
                 )
             }
@@ -239,6 +242,7 @@ private fun RepoMasterNavHost(
                 onOpenTags = { selectedRepoId?.let { nav.navigate(Routes.tags(it)) } },
                 onOpenGitignore = { selectedRepoId?.let { nav.navigate(Routes.gitignore(it)) } },
                 onOpenConflicts = { selectedRepoId?.let { nav.navigate(Routes.conflicts(it)) } },
+                onOpenActions = { selectedRepoId?.let { nav.navigate(Routes.actions(it)) } },
             )
         }
 
@@ -322,6 +326,13 @@ private fun RepoMasterNavHost(
                 repoId = id,
                 onBack = { nav.popBackStack() },
                 onEditFile = { path -> nav.navigate(Routes.editor(id, path)) },
+            )
+        }
+        composable(Routes.ACTIONS, arguments = listOf(navArgument("repoId") { type = NavType.LongType })) { bs ->
+            val id = bs.arguments!!.getLong("repoId")
+            com.willykez.repomaster.ui.screens.actions.ActionsScreen(
+                repoId = id,
+                onBack = { nav.popBackStack() },
             )
         }
         composable(Routes.BLAME, arguments = listOf(

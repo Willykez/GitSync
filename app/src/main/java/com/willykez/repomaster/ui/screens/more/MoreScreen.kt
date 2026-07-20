@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Label
+import androidx.compose.material.icons.filled.PlayCircleOutline
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -50,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import com.willykez.repomaster.App
 import com.willykez.repomaster.ui.components.GlassCard
 import com.willykez.repomaster.ui.components.RepoTitleBlock
+import com.willykez.repomaster.ui.theme.Amber
 import com.willykez.repomaster.ui.theme.CommandBlue
 import com.willykez.repomaster.ui.theme.Emerald
 import com.willykez.repomaster.ui.theme.SignalGold
@@ -80,6 +82,7 @@ fun MoreScreen(
     onOpenTags: () -> Unit,
     onOpenGitignore: () -> Unit,
     onOpenConflicts: () -> Unit,
+    onOpenActions: () -> Unit,
 ) {
     val context = LocalContext.current
     val repoInfo by produceState<Pair<String, String>?>(initialValue = null, repoId) {
@@ -113,6 +116,13 @@ fun MoreScreen(
             accent = Emerald,
             tools = listOf(
                 ToolTile("Remotes", Icons.Filled.Cloud, onOpenRemote),
+            ),
+        ),
+        ToolCategory(
+            title = "CI/CD",
+            accent = Amber,
+            tools = listOf(
+                ToolTile("Actions", Icons.Filled.PlayCircleOutline, onOpenActions),
             ),
         ),
     )

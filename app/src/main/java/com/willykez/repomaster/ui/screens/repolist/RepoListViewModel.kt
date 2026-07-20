@@ -7,6 +7,7 @@ import com.willykez.repomaster.App
 import com.willykez.repomaster.data.db.entity.RepoEntity
 import com.willykez.repomaster.data.github.GitHubApi
 import com.willykez.repomaster.data.github.GitHubResult
+import com.willykez.repomaster.data.github.githubFullNameFromUrl
 import com.willykez.repomaster.git.GitEngine
 import com.willykez.repomaster.git.GitResult
 import kotlinx.coroutines.flow.*
@@ -151,7 +152,7 @@ class RepoListViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun deleteRepoOnGitHub(repo: RepoEntity, alsoDeleteFilesLocally: Boolean) {
         viewModelScope.launch {
-            val fullName = fullNameFromCloneUrl(repo.cloneUrl)
+            val fullName = githubFullNameFromUrl(repo.cloneUrl)
             if (fullName == null) {
                 snackbarMessage.value = "Couldn't tell which GitHub repo this is from its remote URL"
                 return@launch
@@ -176,13 +177,6 @@ class RepoListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Pulls "owner/repo" out of an https or ssh GitHub remote URL, or null if it isn't one. */
-    private fun fullNameFromCloneUrl(url: String): String? {
-        val cleaned = url.trim().removeSuffix(".git").removeSuffix("/")
-        val match = Regex("""github\.com[/:]([^/]+)/([^/]+)$""").find(cleaned) ?: return null
-        val (owner, repo) = match.destructured
-        return "$owner/$repo"
-    }
 
     fun fetch(repo: RepoEntity) = remoteOp(repo) { git, cred ->
         GitEngine.fetch(git, credential = cred).also { r ->

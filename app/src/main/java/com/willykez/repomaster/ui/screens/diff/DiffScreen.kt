@@ -202,7 +202,7 @@ fun DiffScreen(
                                     )
                                 }
                             } else {
-                                val lang = remember(section.displayPath) { languageForPath(section.displayPath) }
+                                val lang = languageForPath(section.displayPath)
                                 itemsIndexed(section.lines, key = { lineIdx, _ -> "$fileIdx:$lineIdx" }) { _, line ->
                                     DiffLineRow(line, lang, syntaxColors, hScroll, itemModifier = Modifier.animateItem())
                                 }

@@ -55,6 +55,7 @@ fun RepoListScreen(
     var repoPendingGitHubDelete by remember { mutableStateOf<RepoEntity?>(null) }
     var repoPendingPullForce by remember { mutableStateOf<RepoEntity?>(null) }
     var repoPendingPushForce by remember { mutableStateOf<RepoEntity?>(null) }
+    var repoPendingCredential by remember { mutableStateOf<RepoEntity?>(null) }
     var showCloneSheet by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
@@ -191,6 +192,7 @@ fun RepoListScreen(
                             onFetch = { vm.fetch(repo) },
                             onRequestPullForce = { repoPendingPullForce = repo },
                             onRequestPushForce = { repoPendingPushForce = repo },
+                            onSetCredential = { repoPendingCredential = repo },
                             // Springy placement animation: repos entering, leaving, or
                             // reordering (new sort mode, freshly-scanned local repo,
                             // deletion) settle into place with a little bounce instead
@@ -255,6 +257,62 @@ fun RepoListScreen(
             onDismiss = { repoPendingPushForce = null },
         )
     }
+    repoPendingCredential?.let { repo ->
+        AlertDialog(
+            onDismissRequest = { repoPendingCredential = null },
+            title = { Text("Credential for ${repo.name}") },
+            text = {
+                if (state.credentials.isEmpty()) {
+                    Text("You don't have any saved credentials yet. Add one on the Credentials screen, then come back here to attach it.")
+                } else {
+                    Column {
+                        Text(
+                            "Used for push/pull/fetch on this repo, and for its Actions runs if it's on GitHub.",
+                            style = MaterialTheme.typography.bodySmall, color = StatusClean,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        state.credentials.forEach { cred ->
+                            Row(
+                                Modifier.fillMaxWidth()
+                                    .clickable { vm.setCredential(repo, cred.id); repoPendingCredential = null }
+                                    .padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RadioButton(selected = repo.credentialId == cred.id, onClick = { vm.setCredential(repo, cred.id); repoPendingCredential = null })
+                                Spacer(Modifier.width(8.dp))
+                                Column {
+                                    Text(cred.name, style = MaterialTheme.typography.bodyMedium)
+                                    if (cred.username.isNotBlank()) {
+                                        Text(cred.username, style = MaterialTheme.typography.labelSmall, color = StatusClean)
+                                    }
+                                }
+                            }
+                        }
+                        if (repo.credentialId != 0L) {
+                            Row(
+                                Modifier.fillMaxWidth()
+                                    .clickable { vm.setCredential(repo, 0L); repoPendingCredential = null }
+                                    .padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RadioButton(selected = false, onClick = { vm.setCredential(repo, 0L); repoPendingCredential = null })
+                                Spacer(Modifier.width(8.dp))
+                                Text("None", style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                if (state.credentials.isEmpty()) {
+                    TextButton(onClick = { repoPendingCredential = null; onOpenCredentials() }) { Text("Go to Credentials") }
+                } else {
+                    TextButton(onClick = { repoPendingCredential = null }) { Text("Done") }
+                }
+            },
+            dismissButton = { TextButton(onClick = { repoPendingCredential = null }) { Text("Cancel") } },
+        )
+    }
 
     // Clone lives here as a bottom sheet, not a nav destination — adding a
     // repo never navigates away from the home screen.
@@ -315,10 +373,16 @@ private fun RepoCard(
     onTap: () -> Unit, onLongPress: () -> Unit,
     onPull: () -> Unit, onPush: () -> Unit,
     onFetch: () -> Unit, onRequestPullForce: () -> Unit, onRequestPushForce: () -> Unit,
+    onSetCredential: () -> Unit,
     itemModifier: Modifier = Modifier,
 ) {
     var showMore by remember { mutableStateOf(false) }
     val hasError = repo.lastError.isNotBlank()
+    val hasCredential = repo.credentialId != 0L
+    // The exact wording JGit throws for a private/auth-needed remote with no credential
+    // attached — recognizing it means the error banner can offer the actual fix (attach a
+    // credential) instead of just showing raw exception text someone has to go interpret.
+    val needsCredential = hasError && repo.lastError.contains("no CredentialsProvider", ignoreCase = true)
     val accent = when {
         hasError -> StatusDeleted
         changeCount != null && changeCount > 0 -> Amber
@@ -363,6 +427,9 @@ private fun RepoCard(
                             DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(repo.lastSyncTime))
                         else "never synced"
                         Text("· $sync", style = MaterialTheme.typography.labelSmall, color = StatusClean)
+                        if (!hasCredential) {
+                            Text("· no credential", style = MaterialTheme.typography.labelSmall, color = StatusClean)
+                        }
                     }
                 }
                 Box {
@@ -376,6 +443,11 @@ private fun RepoCard(
                             leadingIcon = { Icon(Icons.Filled.Warning, null, tint = StatusDeleted) })
                         DropdownMenuItem(text = { Text("Push (Force)") }, onClick = { showMore = false; onRequestPushForce() },
                             leadingIcon = { Icon(Icons.Filled.Warning, null, tint = Amber) })
+                        DropdownMenuItem(
+                            text = { Text(if (hasCredential) "Change credential…" else "Set credential…") },
+                            onClick = { showMore = false; onSetCredential() },
+                            leadingIcon = { Icon(Icons.Filled.Key, null) },
+                        )
                     }
                 }
             }
@@ -383,6 +455,18 @@ private fun RepoCard(
             if (hasError) {
                 Spacer(Modifier.height(6.dp))
                 Text(repo.lastError, style = MaterialTheme.typography.labelSmall, color = StatusDeleted, maxLines = 2)
+                if (needsCredential) {
+                    Spacer(Modifier.height(4.dp))
+                    TextButton(
+                        onClick = onSetCredential,
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                        modifier = Modifier.height(28.dp),
+                    ) {
+                        Icon(Icons.Filled.Key, null, Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Attach a credential", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
             }
 
             Spacer(Modifier.height(10.dp))

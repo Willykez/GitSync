@@ -23,6 +23,7 @@ data class RepoListUiState(
     val searchQuery: String = "",
     val sortMode: RepoSortMode = RepoSortMode.RECENT,
     val isRefreshing: Boolean = false,
+    val credentials: List<com.willykez.repomaster.data.repository.DecryptedCredential> = emptyList(),
     /** Uncommitted (staged + unstaged) file count per repo id, for the list badge. Absent
      * key = not computed yet (e.g. still opening the repo), not necessarily zero changes. */
     val changeCounts: Map<Long, Int> = emptyMap(),
@@ -60,11 +61,16 @@ class RepoListViewModel(app: Application) : AndroidViewModel(app) {
 
     private val filters = combine(searchQuery, sortMode, changeCounts) { q, s, c -> Triple(q, s, c) }
 
-    val uiState: StateFlow<RepoListUiState> = combine(
+    private val baseState = combine(
         repoRepository.allRepos, busyRepoId, snackbarMessage, filters, isRefreshing,
     ) { repos, busy, msg, (query, sort, counts), refreshing ->
-        RepoListUiState(repos, busy, msg, query, sort, refreshing, counts)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RepoListUiState())
+        RepoListUiState(repos, busy, msg, query, sort, refreshing, emptyList(), counts)
+    }
+
+    val uiState: StateFlow<RepoListUiState> = combine(
+        baseState, credentialRepository.allCredentials,
+    ) { state, credentials -> state.copy(credentials = credentials) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RepoListUiState())
 
     init {
         // Compute each repo's uncommitted-change count the first time it's seen. Cheap
@@ -100,6 +106,16 @@ class RepoListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun dismissSnackbar() { snackbarMessage.value = null }
+
+    /** Attaches (or, with credentialId = 0, detaches) a credential on an existing repo —
+     *  the piece that was missing for repos added via Clone without picking one, or via
+     *  the local-folder scan (which never has one to begin with, since there's no clone
+     *  step to pick it during). Pass 0 to clear. */
+    fun setCredential(repo: RepoEntity, credentialId: Long) {
+        viewModelScope.launch {
+            repoRepository.updateRepo(repo.copy(credentialId = credentialId))
+        }
+    }
 
     /**
      * Pull-to-refresh on Home: rescans the local repos folder for anything new (same as

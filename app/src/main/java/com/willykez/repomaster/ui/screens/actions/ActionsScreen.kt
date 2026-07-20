@@ -79,8 +79,9 @@ data class ActionsUiState(
 )
 
 class ActionsViewModel(app: Application) : AndroidViewModel(app) {
-    private val repoRepo = (app as App).repoRepository
-    private val credRepo = app.credentialRepository
+    private val appRef = app as App
+    private val repoRepo = appRef.repoRepository
+    private val credRepo = appRef.credentialRepository
 
     private val _state = MutableStateFlow(ActionsUiState())
     val state: StateFlow<ActionsUiState> = _state.asStateFlow()

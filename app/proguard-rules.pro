@@ -52,6 +52,17 @@
 -dontwarn javax.crypto.**
 -keep class com.willykez.repomaster.data.repository.TokenCrypto { *; }
 
+# --- Core library desugaring (java.time, ConcurrentHashMap, etc. on older API levels) ---
+# The desugar_jdk_libs artifact ships its own bundled keep rules for its internal j$.util.*
+# classes; on the version AGP resolves here, a few of those rules reference fields
+# (lockState, sizeCtl, cellsBusy, etc.) that don't exist in the actual compiled classes,
+# so R8 logs "Proguard configuration rule does not match anything" for each one. It's
+# purely informational — those aren't our rules, nothing is actually being kept
+# incorrectly, and it doesn't affect the build (this note appears only during the
+# already-successful release/lint pass). Scoped -dontnote to just this package so it's
+# quiet without hiding notes anywhere else.
+-dontnote j$.util.**
+
 # --- General ---
 # Keep line numbers for readable stack traces from crash reports, but
 # rename the source file attribute so it doesn't leak the original

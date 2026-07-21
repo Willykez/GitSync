@@ -49,6 +49,7 @@ import com.willykez.repomaster.data.github.GitHubApi
 import com.willykez.repomaster.data.github.GitHubResult
 import com.willykez.repomaster.data.github.WorkflowJob
 import com.willykez.repomaster.data.github.WorkflowRun
+import com.willykez.repomaster.data.github.WorkflowStep
 import com.willykez.repomaster.data.github.githubFullNameFromUrl
 import com.willykez.repomaster.ui.components.GlassCard
 import com.willykez.repomaster.ui.components.RepoTitleBlock
@@ -197,11 +198,12 @@ fun ActionsScreen(repoId: Long, onBack: () -> Unit, vm: ActionsViewModel = viewM
     LaunchedEffect(repoId) { vm.load(repoId) }
     LaunchedEffect(state.message) { state.message?.let { snack.showSnackbar(it); vm.dismissMessage() } }
 
-    // Auto-poll while anything is still queued/in progress. Restarts fresh every time the
-    // run list actually changes, and simply doesn't reschedule itself once everything's
-    // settled — no separate "stop polling" call needed.
-    LaunchedEffect(state.runs) {
-        if (state.runs.any { it.isActive }) {
+    // Polls the whole time this screen is open — deliberately NOT conditional on "is
+    // anything still running": a workflow that starts *after* the list has settled (someone
+    // else pushes, a scheduled run fires, etc.) should still show up without a manual pull
+    // to refresh. Stops automatically when the composable leaves composition (screen closed).
+    LaunchedEffect(Unit) {
+        while (true) {
             delay(12_000)
             vm.refreshRuns(silent = true)
         }
@@ -338,7 +340,7 @@ private fun RunCard(
     val label = statusLabel(run.status, run.conclusion)
     val rotation by animateFloatAsState(if (expanded) 0f else -90f, label = "runChevron")
 
-    GlassCard(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+    GlassCard(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), accent = color) {
         Column(Modifier.fillMaxWidth()) {
             Row(
                 Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(12.dp),
@@ -435,6 +437,11 @@ private fun JobRow(job: WorkflowJob, logExpanded: Boolean, log: String?, loading
                 )
             }
         }
+        if (job.steps.isNotEmpty()) {
+            Column(Modifier.padding(start = 22.dp, bottom = 4.dp)) {
+                job.steps.forEach { step -> StepRow(step) }
+            }
+        }
         AnimatedVisibility(
             visible = logExpanded,
             enter = fadeIn() + expandVertically(),
@@ -442,6 +449,25 @@ private fun JobRow(job: WorkflowJob, logExpanded: Boolean, log: String?, loading
         ) {
             LogPanel(log, loadingLog)
         }
+    }
+}
+
+@Composable
+private fun StepRow(step: WorkflowStep) {
+    val color = statusColor(step.status, step.conclusion)
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        StatusIcon(step.status, step.conclusion, color, size = 11.dp)
+        Spacer(Modifier.width(6.dp))
+        Text(
+            step.name,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 

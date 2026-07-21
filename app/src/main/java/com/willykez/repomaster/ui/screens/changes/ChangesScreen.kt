@@ -68,6 +68,22 @@ fun ChangesScreen(
     LaunchedEffect(state.message) {
         state.message?.let { snack.showSnackbar(it); vm.dismissMessage() }
     }
+    // Auto-prompt after push: only meaningful for repos we actually track CI for (a
+    // GitHub remote with a token attached) — skips the tick's initial value of 0 so this
+    // doesn't fire on first composition/screen open, only on an actual push completing.
+    var lastPushTick by remember { mutableStateOf(0) }
+    LaunchedEffect(state.pushSuccessTick) {
+        val tick = state.pushSuccessTick
+        if (tick > 0 && tick != lastPushTick) {
+            lastPushTick = tick
+            if (state.ciApplicable) {
+                val result = snack.showSnackbar("Pushed — checking CI…", actionLabel = "View")
+                if (result == SnackbarResult.ActionPerformed) onOpenActions()
+            } else {
+                snack.showSnackbar("Pushed")
+            }
+        }
+    }
 
     // Pull-to-refresh via the Material2 "pullrefresh" primitives (androidx.compose.material,
     // @ExperimentalMaterialApi) rather than material3's own pull-to-refresh — the material3

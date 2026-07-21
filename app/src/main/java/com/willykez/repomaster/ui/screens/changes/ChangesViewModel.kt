@@ -35,6 +35,11 @@ data class ChangesUiState(
      *  null just means "not known yet / not applicable", not "no runs". */
     val ciRun: WorkflowRun? = null,
     val ciApplicable: Boolean = false,
+    /** Bumped once per successful push — the Composable watches this to fire the
+     *  "Pushed — checking CI…" snackbar (spec's "auto-prompt after push" trigger point),
+     *  separate from [message] since it needs its own action button (View → Actions screen)
+     *  rather than being just a plain text toast. */
+    val pushSuccessTick: Int = 0,
 )
 
 class ChangesViewModel(app: Application) : AndroidViewModel(app) {
@@ -141,8 +146,8 @@ class ChangesViewModel(app: Application) : AndroidViewModel(app) {
     fun pullMerge() = remoteOp { g, cred -> GitEngine.pullMerge(g, cred) }
     fun pullRebase() = remoteOp { g, cred -> GitEngine.pullRebase(g, cred) }
     fun pullForce() = remoteOp { g, cred -> GitEngine.pullForce(g, cred) }
-    fun push() = remoteOp { g, cred -> GitEngine.push(g, credential = cred) }
-    fun pushForce() = remoteOp { g, cred -> GitEngine.push(g, force = true, credential = cred) }
+    fun push() = remoteOp(isPush = true) { g, cred -> GitEngine.push(g, credential = cred) }
+    fun pushForce() = remoteOp(isPush = true) { g, cred -> GitEngine.push(g, force = true, credential = cred) }
     fun syncMerge() = remoteOp { g, cred -> GitEngine.syncMerge(g, cred) }
     fun syncRebase() = remoteOp { g, cred -> GitEngine.syncRebase(g, cred) }
 
@@ -211,7 +216,10 @@ class ChangesViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun remoteOp(block: suspend (Git, com.willykez.repomaster.data.repository.DecryptedCredential?) -> GitResult<*>) {
+    private fun remoteOp(
+        isPush: Boolean = false,
+        block: suspend (Git, com.willykez.repomaster.data.repository.DecryptedCredential?) -> GitResult<*>,
+    ) {
         val repo = _state.value.repo ?: run { err("Repo not loaded"); return }
         val g = git ?: run { err("Repo not open"); return }
         viewModelScope.launch {
@@ -225,7 +233,11 @@ class ChangesViewModel(app: Application) : AndroidViewModel(app) {
                 is GitResult.Success -> {
                     repoRepo.markSyncSuccess(repo.id)
                     val msg = when (val d = r.data) { is String -> d; else -> "Done" }
-                    ok(msg)
+                    if (isPush) {
+                        _state.value = _state.value.copy(pushSuccessTick = _state.value.pushSuccessTick + 1)
+                    } else {
+                        ok(msg)
+                    }
                     openAndRefresh(repo)
                     refreshCiStatus(repo)
                 }

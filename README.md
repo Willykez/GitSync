@@ -65,21 +65,24 @@ gradle assembleDebug
 ```
 > This project intentionally doesn't check in the binary
 > `gradle-wrapper.jar`. Android Studio regenerates it on sync; from a plain
-> shell, install Gradle 8.7 yourself and call `gradle` directly (see
-> `.github/workflows/ci.yml` for the exact setup used in CI).
+> shell, install Gradle 8.9 yourself and call `gradle` directly (see
+> `.github/workflows/build.yml` for the exact setup used in CI).
 
 ## CI/CD
 
-- **`ci.yml`** — runs on every push/PR: a fast debug build to catch compile
-  errors early.
-- **`release.yml`** — runs on a `v*` tag push (or manually via **Run
-  workflow**): builds a signed, shrunk release APK and attaches it to a
-  GitHub Release. Each run signs with a freshly generated throwaway
-  keystore — great for installing on your own device(s), but **not**
-  suitable for Play Store updates (which require a stable signing key
-  across releases). To use a persistent key instead, generate one yourself,
-  base64-encode it into a repo secret, and swap the "Generate signing
-  keystore" step in `release.yml` for one that decodes the secret.
+One workflow (`build.yml`), two jobs, so a push shows up as a single run
+with both jobs under it in the Actions tab:
+- **`build-debug`** — runs on every push/PR: a fast debug build to catch
+  compile errors early.
+- **`build-release`** — only does real work on a `v*` tag push (or manually
+  via **Run workflow**); on an ordinary branch push/PR it still appears in
+  the run, just marked Skipped. Builds a signed, shrunk release APK and
+  attaches it to a GitHub Release. Each run signs with a freshly generated
+  throwaway keystore — great for installing on your own device(s), but
+  **not** suitable for Play Store updates (which require a stable signing
+  key across releases). To use a persistent key instead, generate one
+  yourself, base64-encode it into a repo secret, and swap the "Configure
+  release keystore" step in `build.yml` for one that decodes the secret.
 
 ## Permissions
 

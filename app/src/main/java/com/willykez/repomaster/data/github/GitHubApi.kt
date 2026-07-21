@@ -38,12 +38,20 @@ data class WorkflowRun(
     val isActive: Boolean get() = status != "completed"
 }
 
+data class WorkflowStep(
+    val name: String,
+    val status: String,
+    val conclusion: String?,
+    val number: Int,
+)
+
 data class WorkflowJob(
     val id: Long,
     val name: String,
     val status: String,
     val conclusion: String?,
     val htmlUrl: String,
+    val steps: List<WorkflowStep> = emptyList(),
 )
 
 sealed class GitHubResult<out T> {
@@ -182,12 +190,23 @@ object GitHubApi {
                 val arr = JSONObject(r.data).getJSONArray("jobs")
                 GitHubResult.Success((0 until arr.length()).map { i ->
                     val o = arr.getJSONObject(i)
+                    val stepsArr = o.optJSONArray("steps")
+                    val steps = if (stepsArr == null) emptyList() else (0 until stepsArr.length()).map { si ->
+                        val s = stepsArr.getJSONObject(si)
+                        WorkflowStep(
+                            name = s.optString("name", "Step"),
+                            status = s.optString("status", "unknown"),
+                            conclusion = if (s.isNull("conclusion")) null else s.optString("conclusion").ifBlank { null },
+                            number = s.optInt("number", si + 1),
+                        )
+                    }
                     WorkflowJob(
                         id = o.getLong("id"),
                         name = o.optString("name", "Job"),
                         status = o.optString("status", "unknown"),
                         conclusion = if (o.isNull("conclusion")) null else o.optString("conclusion").ifBlank { null },
                         htmlUrl = o.optString("html_url", ""),
+                        steps = steps,
                     )
                 })
             } catch (e: Exception) {

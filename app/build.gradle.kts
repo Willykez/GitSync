@@ -227,7 +227,7 @@ dependencies {
     )
 
     implementation(
-        "androidx.navigation:navigation-compose:2.7.7"
+        "androidx.navigation:navigation-compose:2.9.2"
     )
 
 
@@ -277,11 +277,8 @@ dependencies {
     )
 
 
-    // Security
-
-    implementation(
-        "androidx.security:security-crypto:1.1.0-alpha06"
-    )
+    // (Token encryption uses raw AndroidKeyStore/Cipher directly — see TokenCrypto.kt —
+    // so no dependency on androidx.security:security-crypto is needed here.)
 
 
     // Coroutines

@@ -1,0 +1,154 @@
+name: Build APK
+
+# One workflow, two jobs — so a single push shows up as ONE run in the
+# Actions tab with both jobs under it, rather than two separate runs from
+# two separate workflow files. build-debug runs on every push/PR (fast
+# feedback on compile errors); build-release only actually executes its
+# steps when the push is a v* tag (or a manual dispatch) — on an ordinary
+# branch push it still appears in the run's job list, just as "Skipped".
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Assemble debug APK
+        run: gradle assembleDebug --no-daemon
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: repomaster-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+
+  build-release:
+    runs-on: ubuntu-latest
+    # Only does real work for a version-tag push or a manual dispatch — on a
+    # normal branch push/PR this job still shows up in the run (as required
+    # by the "if" not gating the whole workflow), just marked Skipped.
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      # Decode permanent signing keystore
+      - name: Configure release keystore
+        id: keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::Missing KEYSTORE_B64 secret"
+            exit 1
+          fi
+
+          if [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::Missing signing passwords"
+            exit 1
+          fi
+
+          if [ "$STORE_PASSWORD" != "$KEY_PASSWORD" ]; then
+            echo "::error::STORE_PASSWORD and KEY_PASSWORD must be identical for PKCS12 keystores"
+            exit 1
+          fi
+
+          KEYSTORE_PATH="$RUNNER_TEMP/repomaster-release.keystore"
+
+          echo "$KEYSTORE_B64" | base64 --decode > "$KEYSTORE_PATH"
+
+          if [ ! -s "$KEYSTORE_PATH" ]; then
+            echo "::error::Keystore file was not created"
+            exit 1
+          fi
+
+          KEY_ALIAS="upload"
+
+          echo "::add-mask::$STORE_PASSWORD"
+
+          echo "keystore_path=$KEYSTORE_PATH" >> "$GITHUB_OUTPUT"
+          echo "keystore_password=$STORE_PASSWORD" >> "$GITHUB_OUTPUT"
+          echo "key_password=$KEY_PASSWORD" >> "$GITHUB_OUTPUT"
+          echo "key_alias=$KEY_ALIAS" >> "$GITHUB_OUTPUT"
+
+
+      # Build signed release APK
+      - name: Build release APK
+        run: |
+          gradle assembleRelease \
+            -PREPOMASTER_RELEASE_STORE_FILE="${{ steps.keystore.outputs.keystore_path }}" \
+            -PREPOMASTER_RELEASE_STORE_PASSWORD="${{ steps.keystore.outputs.keystore_password }}" \
+            -PREPOMASTER_RELEASE_KEY_ALIAS="${{ steps.keystore.outputs.key_alias }}" \
+            -PREPOMASTER_RELEASE_KEY_PASSWORD="${{ steps.keystore.outputs.key_password }}" \
+            --no-daemon
+
+
+      # Locate APK
+      - name: Locate release APK
+        id: apk
+        run: |
+          APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -n1)
+
+          if [ -z "$APK_PATH" ]; then
+            echo "::error::Release APK not found"
+            exit 1
+          fi
+
+          echo "APK found: $APK_PATH"
+
+          echo "path=$APK_PATH" >> "$GITHUB_OUTPUT"
+
+
+      # Upload artifact
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: repomaster-release-apk
+          path: ${{ steps.apk.outputs.path }}
+          retention-days: 30
+
+
+      # Create GitHub Release from version tag
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.apk.outputs.path }}
+          generate_release_notes: true

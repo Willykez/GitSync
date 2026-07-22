@@ -1,6 +1,8 @@
 package com.willykez.repomaster.ui.screens.actions
 
 import android.app.Application
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
@@ -27,6 +29,8 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.PlayCircleOutline
 import androidx.compose.material.icons.filled.RemoveCircleOutline
+import androidx.compose.material.icons.filled.GetApp
+import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -45,8 +50,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.willykez.repomaster.App
+import com.willykez.repomaster.data.ApkInstaller
 import com.willykez.repomaster.data.github.GitHubApi
 import com.willykez.repomaster.data.github.GitHubResult
+import com.willykez.repomaster.data.github.WorkflowArtifact
 import com.willykez.repomaster.data.github.WorkflowJob
 import com.willykez.repomaster.data.github.WorkflowRun
 import com.willykez.repomaster.data.github.WorkflowStep
@@ -77,6 +84,9 @@ data class ActionsUiState(
     val logsByJob: Map<Long, String> = emptyMap(),
     val loadingLogsForJob: Long? = null,
     val busyRunId: Long? = null,
+    val artifactsByRun: Map<Long, List<WorkflowArtifact>> = emptyMap(),
+    val loadingArtifactsForRun: Long? = null,
+    val installingArtifactId: Long? = null,
 )
 
 class ActionsViewModel(app: Application) : AndroidViewModel(app) {
@@ -123,7 +133,62 @@ class ActionsViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleRun(runId: Long) {
         val wasExpanded = _state.value.expandedRunId == runId
         _state.value = _state.value.copy(expandedRunId = if (wasExpanded) null else runId)
-        if (!wasExpanded && runId !in _state.value.jobsByRun) loadJobs(runId)
+        if (!wasExpanded) {
+            if (runId !in _state.value.jobsByRun) loadJobs(runId)
+            if (runId !in _state.value.artifactsByRun) loadArtifacts(runId)
+        }
+    }
+
+    private fun loadArtifacts(runId: Long) {
+        val fn = fullName ?: return
+        val tk = token ?: return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(loadingArtifactsForRun = runId)
+            when (val r = GitHubApi.listRunArtifacts(fn, runId, tk)) {
+                is GitHubResult.Error ->
+                    // Quiet failure here — a repo without upload-artifact steps is the
+                    // common case, not an error worth a snackbar every time a run opens.
+                    _state.value = _state.value.copy(loadingArtifactsForRun = null)
+                is GitHubResult.Success ->
+                    _state.value = _state.value.copy(
+                        loadingArtifactsForRun = null,
+                        artifactsByRun = _state.value.artifactsByRun + (runId to r.data),
+                    )
+            }
+        }
+    }
+
+    /**
+     * Downloads the artifact's zip, extracts the APK inside it, and hands back the install
+     * Intent for the screen to launch — actually starting an Activity from a ViewModel isn't
+     * possible/appropriate, so this stays a pure suspend function and [ActionsScreen] fires
+     * the Intent from the result.
+     */
+    fun installArtifact(context: Context, runId: Long, artifact: WorkflowArtifact, onIntentReady: (android.content.Intent) -> Unit) {
+        val fn = fullName ?: return
+        val tk = token ?: return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(installingArtifactId = artifact.id)
+            when (val dl = GitHubApi.downloadArtifactZip(fn, artifact.id, tk)) {
+                is GitHubResult.Error ->
+                    _state.value = _state.value.copy(installingArtifactId = null, message = dl.message)
+                is GitHubResult.Success -> {
+                    when (val extracted = ApkInstaller.extractAndBuildInstallIntent(context, dl.data, artifact.name)) {
+                        is ApkInstaller.Result.Ready -> {
+                            _state.value = _state.value.copy(installingArtifactId = null)
+                            onIntentReady(extracted.installIntent)
+                        }
+                        ApkInstaller.Result.NoApkInArchive ->
+                            _state.value = _state.value.copy(
+                                installingArtifactId = null,
+                                message = "\"${artifact.name}\" doesn't contain an APK",
+                            )
+                        is ApkInstaller.Result.Failed ->
+                            _state.value = _state.value.copy(installingArtifactId = null, message = extracted.message)
+                    }
+                }
+            }
+        }
     }
 
     private fun loadJobs(runId: Long) {
@@ -234,23 +299,38 @@ fun ActionsScreen(repoId: Long, onBack: () -> Unit, vm: ActionsViewModel = viewM
                 )
                 state.isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 state.runs.isEmpty() -> EmptyNote("No workflow runs found for this repo yet.")
-                else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp, horizontal = 12.dp)) {
-                    items(state.runs, key = { it.id }) { run ->
-                        RunCard(
-                            run = run,
-                            expanded = state.expandedRunId == run.id,
-                            jobs = state.jobsByRun[run.id],
-                            loadingJobs = state.loadingJobsForRun == run.id,
-                            busy = state.busyRunId == run.id,
-                            expandedLogJobId = state.expandedLogJobId,
-                            logsByJob = state.logsByJob,
-                            loadingLogsForJob = state.loadingLogsForJob,
-                            onToggle = { vm.toggleRun(run.id) },
-                            onToggleLogs = { jobId -> vm.toggleLogs(jobId) },
-                            onRerun = { vm.rerun(run.id) },
-                            onRerunFailed = { vm.rerunFailedJobs(run.id) },
-                            onCancel = { vm.cancel(run.id) },
-                        )
+                else -> {
+                    val context = LocalContext.current
+                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp, horizontal = 12.dp)) {
+                        items(state.runs, key = { it.id }) { run ->
+                            RunCard(
+                                run = run,
+                                expanded = state.expandedRunId == run.id,
+                                jobs = state.jobsByRun[run.id],
+                                loadingJobs = state.loadingJobsForRun == run.id,
+                                busy = state.busyRunId == run.id,
+                                expandedLogJobId = state.expandedLogJobId,
+                                logsByJob = state.logsByJob,
+                                loadingLogsForJob = state.loadingLogsForJob,
+                                artifacts = state.artifactsByRun[run.id],
+                                loadingArtifacts = state.loadingArtifactsForRun == run.id,
+                                installingArtifactId = state.installingArtifactId,
+                                onToggle = { vm.toggleRun(run.id) },
+                                onToggleLogs = { jobId -> vm.toggleLogs(jobId) },
+                                onRerun = { vm.rerun(run.id) },
+                                onRerunFailed = { vm.rerunFailedJobs(run.id) },
+                                onCancel = { vm.cancel(run.id) },
+                                onInstall = { artifact ->
+                                    vm.installArtifact(context, run.id, artifact) { intent ->
+                                        try {
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "No app found to install APKs", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -330,11 +410,15 @@ private fun RunCard(
     expandedLogJobId: Long?,
     logsByJob: Map<Long, String>,
     loadingLogsForJob: Long?,
+    artifacts: List<WorkflowArtifact>?,
+    loadingArtifacts: Boolean,
+    installingArtifactId: Long?,
     onToggle: () -> Unit,
     onToggleLogs: (Long) -> Unit,
     onRerun: () -> Unit,
     onRerunFailed: () -> Unit,
     onCancel: () -> Unit,
+    onInstall: (WorkflowArtifact) -> Unit,
 ) {
     val color = statusColor(run.status, run.conclusion)
     val label = statusLabel(run.status, run.conclusion)
@@ -405,10 +489,72 @@ private fun RunCard(
                             )
                         }
                     }
+
+                    // Only shown once there's something to show — a run whose workflow
+                    // never calls upload-artifact (most CI-only workflows) just omits this
+                    // section entirely rather than showing an empty "Build outputs" header.
+                    if (loadingArtifacts) {
+                        Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        }
+                    } else if (!artifacts.isNullOrEmpty()) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                            Text(
+                                "Build outputs",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 6.dp),
+                            )
+                            artifacts.forEach { artifact ->
+                                ArtifactRow(
+                                    artifact = artifact,
+                                    installing = installingArtifactId == artifact.id,
+                                    onInstall = { onInstall(artifact) },
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ArtifactRow(artifact: WorkflowArtifact, installing: Boolean, onInstall: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            if (artifact.expired) Icons.Filled.HourglassEmpty else Icons.Filled.GetApp,
+            null,
+            tint = if (artifact.expired) StatusClean else CommandBlue,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(artifact.name, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+            Text(
+                if (artifact.expired) "Expired" else formatArtifactSize(artifact.sizeInBytes),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        when {
+            installing -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            artifact.expired -> Unit // no action offered — GitHub has already deleted the archive
+            else -> TextButton(onClick = onInstall) { Text("Install") }
+        }
+    }
+}
+
+private fun formatArtifactSize(bytes: Long): String = when {
+    bytes >= 1_048_576 -> "%.1f MB".format(bytes / 1_048_576.0)
+    bytes >= 1_024 -> "%.0f KB".format(bytes / 1_024.0)
+    else -> "$bytes B"
 }
 
 @Composable

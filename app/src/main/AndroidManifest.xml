@@ -7,7 +7,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!--
-        Repos now live in a PUBLIC folder (/storage/emulated/0/RepoMaster/repos)
+        Repos now live in a PUBLIC folder (/storage/emulated/0/.RepoMaster/repos)
         instead of this app's private Android/data folder, so any file
         manager, other app, or PC-over-USB can reach the files. See
         data/PublicStorage.kt for the full reasoning.
@@ -24,6 +24,17 @@
         android:maxSdkVersion="29" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
+
+    <!--
+        Lets the system installer treat an APK handed to it by this app (via
+        FileProvider, from the Actions screen's "Build outputs" → Install
+        button) as a normal install source, instead of blocking it as an
+        "unknown app" the way a plain file manager tap would be. Required on
+        Android 8+ (API 26+); the system still shows its own confirmation
+        dialog before anything installs, this just lets that dialog appear
+        in the first place.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".App"
@@ -46,6 +57,22 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+            Scoped only to the "apk-installs" cache subfolder (see
+            res/xml/file_paths.xml and data/ApkInstaller.kt) — not the whole
+            cache dir — so a content:// grant handed to the system installer
+            can't be used to reach anything else the app has cached.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
     </application>
 

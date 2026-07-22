@@ -54,6 +54,17 @@ data class WorkflowJob(
     val steps: List<WorkflowStep> = emptyList(),
 )
 
+/** One file uploaded by a workflow run via `actions/upload-artifact` (what ci.yml/release.yml
+ *  produce). [expired] mirrors GitHub's own retention flag — once true the archive is gone
+ *  server-side and [GitHubApi.downloadArtifactZip] will fail, so callers should check this
+ *  before offering an Install button rather than only finding out after a failed download. */
+data class WorkflowArtifact(
+    val id: Long,
+    val name: String,
+    val sizeInBytes: Long,
+    val expired: Boolean,
+)
+
 sealed class GitHubResult<out T> {
     data class Success<T>(val data: T) : GitHubResult<T>()
     data class Error(val message: String) : GitHubResult<Nothing>()
@@ -235,6 +246,75 @@ object GitHubApi {
         when (val r = http("$BASE/repos/$fullName/actions/runs/$runId/cancel", "POST", token)) {
             is GitHubResult.Error -> r
             is GitHubResult.Success -> GitHubResult.Success(Unit)
+        }
+
+    /** Files a run uploaded via `actions/upload-artifact` (e.g. `ci.yml`/`release.yml`
+     *  publishing a built APK) — backs the Actions screen's "Build outputs" section. */
+    suspend fun listRunArtifacts(fullName: String, runId: Long, token: String): GitHubResult<List<WorkflowArtifact>> {
+        val url = "$BASE/repos/$fullName/actions/runs/$runId/artifacts"
+        return when (val r = http(url, "GET", token)) {
+            is GitHubResult.Error -> r
+            is GitHubResult.Success -> try {
+                val arr = JSONObject(r.data).getJSONArray("artifacts")
+                GitHubResult.Success((0 until arr.length()).map { i ->
+                    val o = arr.getJSONObject(i)
+                    WorkflowArtifact(
+                        id = o.getLong("id"),
+                        name = o.optString("name", "artifact"),
+                        sizeInBytes = o.optLong("size_in_bytes", 0L),
+                        expired = o.optBoolean("expired", false),
+                    )
+                })
+            } catch (e: Exception) {
+                GitHubResult.Error("Couldn't read GitHub's response: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Downloads one artifact's zip archive (GitHub always wraps uploaded artifacts in a zip,
+     * even for a single file) as raw bytes. Same redirect-without-auth-header dance as
+     * [getJobLogs] — the archive lives on blob storage behind a pre-signed URL, and forwarding
+     * the GitHub bearer token to that host gets the request rejected. A 410 here means the
+     * artifact already expired server-side (retention window passed) even if the list call
+     * that found it still reported `expired = false` a moment earlier, so this is surfaced as
+     * its own error rather than folded into the generic "network error" case.
+     */
+    suspend fun downloadArtifactZip(fullName: String, artifactId: Long, token: String): GitHubResult<ByteArray> =
+        withContext(Dispatchers.IO) {
+            var conn: HttpURLConnection? = null
+            try {
+                conn = (URL("$BASE/repos/$fullName/actions/artifacts/$artifactId/zip").openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = false
+                    requestMethod = "GET"
+                    connectTimeout = 10_000
+                    readTimeout = 30_000
+                    setRequestProperty("Accept", "application/vnd.github+json")
+                    setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+                    setRequestProperty("Authorization", "Bearer $token")
+                }
+                var code = conn.responseCode
+
+                if (code in 300..399) {
+                    val location = conn.getHeaderField("Location")
+                    conn.disconnect()
+                    if (location.isNullOrBlank()) return@withContext GitHubResult.Error("GitHub didn't provide a download location")
+                    conn = (URL(location).openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"; connectTimeout = 10_000; readTimeout = 30_000
+                    }
+                    code = conn.responseCode
+                }
+
+                when {
+                    code == 410 -> GitHubResult.Error("This artifact has expired and is no longer available on GitHub")
+                    code in 200..299 -> GitHubResult.Success(conn.inputStream.use { it.readBytes() })
+                    else -> GitHubResult.Error("GitHub returned HTTP $code downloading the artifact")
+                }
+            } catch (e: Exception) {
+                GitHubResult.Error(e.message ?: "Network error downloading artifact")
+            } finally {
+                conn?.disconnect()
+            }
         }
 
     /**

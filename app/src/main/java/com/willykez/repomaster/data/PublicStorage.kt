@@ -9,7 +9,7 @@ import android.provider.Settings
 import java.io.File
 
 /**
- * Repos now live in a PUBLIC folder — /storage/emulated/0/RepoMaster/repos/<name> —
+ * Repos now live in a PUBLIC folder — /storage/emulated/0/.RepoMaster/repos/<name> —
  * instead of this app's private Android/data/com.willykez.repomaster/files folder.
  *
  * Why this matters: Android/data is locked down starting Android 11 — even
@@ -25,9 +25,23 @@ import java.io.File
  * That's a manual toggle in system Settings — Android won't show a normal
  * permission popup for it — so this class also handles building the Intent
  * that takes the user straight to the right settings screen.
+ *
+ * The folder is dot-prefixed (`.RepoMaster`) to hide it from gallery/media
+ * scanners and default file-manager views, per the standard Android
+ * "hidden shared folder" convention — it's still genuinely public storage,
+ * just not cluttering the top level of internal storage. This is
+ * non-breaking for existing installs: repo locations are stored as an
+ * absolute path (`RepoEntity.fullSavePath`) rather than recomputed from
+ * this folder name, so already-tracked repos keep working no matter which
+ * folder they were originally cloned into.
+ *
+ * One consequence: [RepoRepository.scanForLocalRepos] only looks inside
+ * the current [reposRootDir]. A repo someone had manually dropped into the
+ * old visible `RepoMaster` folder won't be auto-detected going forward —
+ * it needs to be moved under `.RepoMaster`, or re-cloned.
  */
 object PublicStorage {
-    private const val FOLDER_NAME = "RepoMaster"
+    private const val FOLDER_NAME = ".RepoMaster"
 
     /** Root folder for all cloned repos. Creates it if it doesn't exist yet. */
     fun reposRootDir(): File {

@@ -7,6 +7,7 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -130,6 +131,59 @@ class FileExplorerViewModel(app: Application) : AndroidViewModel(app) {
                         is GitResult.Error -> _uiState.value = _uiState.value.copy(isBusy = false, message = result.message)
                     }
                     git.close()
+                    refresh()
+                }
+            }
+        }
+    }
+
+    /** Stages every selected file/folder in one repo open/close pair — same underlying
+     *  per-path `git add` as the single-file flow, just looped, so a long-press selection of
+     *  a dozen files doesn't mean a dozen separate JGit repo opens. */
+    fun bulkStage(nodes: List<FileNode>) {
+        val repo = _uiState.value.repo ?: return
+        if (nodes.isEmpty()) return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isBusy = true)
+            when (val opened = GitEngine.openRepo(repo.fullSavePath)) {
+                is GitResult.Error -> _uiState.value = _uiState.value.copy(isBusy = false, message = opened.message)
+                is GitResult.Success -> {
+                    val git = opened.data
+                    var failed = 0
+                    for (node in nodes) {
+                        if (GitEngine.stageFile(git, node.relativePath) is GitResult.Error) failed++
+                    }
+                    git.close()
+                    _uiState.value = _uiState.value.copy(
+                        isBusy = false,
+                        message = if (failed == 0) "Staged ${nodes.size} item(s)" else "Staged ${nodes.size - failed} of ${nodes.size} — $failed failed",
+                    )
+                }
+            }
+        }
+    }
+
+    /** Deletes-and-stages every selected file/folder — same `git rm` semantics per item as
+     *  the single-file delete (a plain filesystem delete wouldn't stage the removal, so
+     *  "Stage" afterward would silently do nothing; see [delete] for the full reasoning). */
+    fun bulkDelete(nodes: List<FileNode>) {
+        val repo = _uiState.value.repo ?: return
+        if (nodes.isEmpty()) return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isBusy = true)
+            when (val opened = GitEngine.openRepo(repo.fullSavePath)) {
+                is GitResult.Error -> _uiState.value = _uiState.value.copy(isBusy = false, message = opened.message)
+                is GitResult.Success -> {
+                    val git = opened.data
+                    var failed = 0
+                    for (node in nodes) {
+                        if (GitEngine.removeFile(git, node.relativePath) is GitResult.Error) failed++
+                    }
+                    git.close()
+                    _uiState.value = _uiState.value.copy(
+                        isBusy = false,
+                        message = if (failed == 0) "Deleted ${nodes.size} item(s) — staged, ready to commit" else "Deleted ${nodes.size - failed} of ${nodes.size} — $failed failed",
+                    )
                     refresh()
                 }
             }
@@ -287,6 +341,7 @@ fun FileExplorerScreen(
     onOpenFolder: (String) -> Unit,
     onOpenFile: (String) -> Unit,
     onOpenBlame: (String) -> Unit,
+    onOpenSearch: () -> Unit = {},
     vm: FileExplorerViewModel = viewModel(),
 ) {
     val state by vm.uiState.collectAsState()
@@ -297,6 +352,9 @@ fun FileExplorerScreen(
     var showAddMenu by remember { mutableStateOf(false) }
     var showNewFileDialog by remember { mutableStateOf(false) }
     var showNewFolderDialog by remember { mutableStateOf(false) }
+    var selectedPaths by remember { mutableStateOf(setOf<String>()) }
+    var showBulkDeleteConfirm by remember { mutableStateOf(false) }
+    val selectionMode = selectedPaths.isNotEmpty()
 
     val importFilesLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
@@ -310,47 +368,75 @@ fun FileExplorerScreen(
     LaunchedEffect(state.message) {
         state.message?.let { snack.showSnackbar(it); vm.dismissMessage() }
     }
+    // Selection only makes sense against the currently-listed files — if the folder
+    // refreshes out from under an active selection (rename/delete elsewhere, pull, etc.)
+    // just drop it rather than risk acting on paths that no longer exist here.
+    LaunchedEffect(state.nodes) {
+        val currentPaths = state.nodes.map { it.relativePath }.toSet()
+        if (selectedPaths.any { it !in currentPaths }) selectedPaths = selectedPaths.intersect(currentPaths)
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    if (state.relativePath.isBlank()) {
-                        RepoTitleBlock(state.repo?.name ?: "Files", state.repo?.branch)
-                    } else {
-                        Text(state.relativePath.substringAfterLast('/'), fontWeight = FontWeight.SemiBold)
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-                },
-                actions = {
-                    Box {
-                        IconButton(onClick = { showAddMenu = true }, enabled = !state.isBusy) {
-                            Icon(Icons.Filled.Add, "Add")
+            if (selectionMode) {
+                TopAppBar(
+                    title = { Text("${selectedPaths.size} selected", fontWeight = FontWeight.SemiBold) },
+                    navigationIcon = {
+                        IconButton(onClick = { selectedPaths = emptySet() }) { Icon(Icons.Filled.Close, "Cancel selection") }
+                    },
+                    actions = {
+                        val selectedNodes = state.nodes.filter { it.relativePath in selectedPaths }
+                        IconButton(onClick = { vm.bulkStage(selectedNodes); selectedPaths = emptySet() }, enabled = !state.isBusy) {
+                            Icon(Icons.Filled.AddCircleOutline, "Stage selected")
                         }
-                        DropdownMenu(expanded = showAddMenu, onDismissRequest = { showAddMenu = false }) {
-                            DropdownMenuItem(text = { Text("New File") },
-                                onClick = { showAddMenu = false; showNewFileDialog = true },
-                                leadingIcon = { Icon(Icons.Filled.NoteAdd, null) })
-                            DropdownMenuItem(text = { Text("New Folder") },
-                                onClick = { showAddMenu = false; showNewFolderDialog = true },
-                                leadingIcon = { Icon(Icons.Filled.CreateNewFolder, null) })
-                            HorizontalDivider()
-                            DropdownMenuItem(text = { Text("Import Files") },
-                                onClick = { showAddMenu = false; importFilesLauncher.launch(arrayOf("*/*")) },
-                                leadingIcon = { Icon(Icons.Filled.UploadFile, null) })
-                            DropdownMenuItem(text = { Text("Import Folder") },
-                                onClick = { showAddMenu = false; importFolderLauncher.launch(null) },
-                                leadingIcon = { Icon(Icons.Filled.DriveFolderUpload, null) })
+                        IconButton(onClick = { showBulkDeleteConfirm = true }, enabled = !state.isBusy) {
+                            Icon(Icons.Filled.Delete, "Delete selected", tint = StatusDeleted)
                         }
-                    }
-                    IconButton(onClick = vm::push, enabled = !state.isBusy) {
-                        if (state.isBusy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        else Icon(Icons.Filled.ArrowUpward, "Push")
-                    }
-                },
-            )
+                    },
+                )
+            } else {
+                TopAppBar(
+                    title = {
+                        if (state.relativePath.isBlank()) {
+                            RepoTitleBlock(state.repo?.name ?: "Files", state.repo?.branch)
+                        } else {
+                            Text(state.relativePath.substringAfterLast('/'), fontWeight = FontWeight.SemiBold)
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                    },
+                    actions = {
+                        IconButton(onClick = onOpenSearch, enabled = !state.isBusy) {
+                            Icon(Icons.Filled.Search, "Search this repo")
+                        }
+                        Box {
+                            IconButton(onClick = { showAddMenu = true }, enabled = !state.isBusy) {
+                                Icon(Icons.Filled.Add, "Add")
+                            }
+                            DropdownMenu(expanded = showAddMenu, onDismissRequest = { showAddMenu = false }) {
+                                DropdownMenuItem(text = { Text("New File") },
+                                    onClick = { showAddMenu = false; showNewFileDialog = true },
+                                    leadingIcon = { Icon(Icons.Filled.NoteAdd, null) })
+                                DropdownMenuItem(text = { Text("New Folder") },
+                                    onClick = { showAddMenu = false; showNewFolderDialog = true },
+                                    leadingIcon = { Icon(Icons.Filled.CreateNewFolder, null) })
+                                HorizontalDivider()
+                                DropdownMenuItem(text = { Text("Import Files") },
+                                    onClick = { showAddMenu = false; importFilesLauncher.launch(arrayOf("*/*")) },
+                                    leadingIcon = { Icon(Icons.Filled.UploadFile, null) })
+                                DropdownMenuItem(text = { Text("Import Folder") },
+                                    onClick = { showAddMenu = false; importFolderLauncher.launch(null) },
+                                    leadingIcon = { Icon(Icons.Filled.DriveFolderUpload, null) })
+                            }
+                        }
+                        IconButton(onClick = vm::push, enabled = !state.isBusy) {
+                            if (state.isBusy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            else Icon(Icons.Filled.ArrowUpward, "Push")
+                        }
+                    },
+                )
+            }
         },
         snackbarHost = { SnackbarHost(snack) { d -> Snackbar(d) } },
     ) { pad ->
@@ -376,7 +462,14 @@ fun FileExplorerScreen(
                 items(state.nodes, key = { it.relativePath }) { node ->
                     FileRow(
                         node = node,
-                        onClick = { if (node.isDirectory) onOpenFolder(node.relativePath) else onOpenFile(node.relativePath) },
+                        selectionMode = selectionMode,
+                        selected = node.relativePath in selectedPaths,
+                        onClick = {
+                            if (selectionMode) {
+                                selectedPaths = if (node.relativePath in selectedPaths) selectedPaths - node.relativePath else selectedPaths + node.relativePath
+                            } else if (node.isDirectory) onOpenFolder(node.relativePath) else onOpenFile(node.relativePath)
+                        },
+                        onLongClick = { selectedPaths = selectedPaths + node.relativePath },
                         onRename = { nodePendingRename = node },
                         onDelete = { nodePendingDelete = node },
                         onBlame = { onOpenBlame(node.relativePath) },
@@ -417,6 +510,18 @@ fun FileExplorerScreen(
         )
     }
 
+    if (showBulkDeleteConfirm) {
+        val selectedNodes = state.nodes.filter { it.relativePath in selectedPaths }
+        ConfirmDialog(
+            title = "Delete ${selectedNodes.size} item(s)?",
+            body = "This stages the removal of everything selected — commit and push to remove it from the remote too. Can't be undone locally.",
+            confirmLabel = "Delete",
+            danger = true,
+            onDismiss = { showBulkDeleteConfirm = false },
+            onConfirm = { vm.bulkDelete(selectedNodes); showBulkDeleteConfirm = false; selectedPaths = emptySet() },
+        )
+    }
+
     if (showNewFileDialog) {
         SingleInputDialog(
             title = "New File",
@@ -438,18 +543,32 @@ fun FileExplorerScreen(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun FileRow(node: FileNode, onClick: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit, onBlame: () -> Unit) {
+private fun FileRow(
+    node: FileNode,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    onBlame: () -> Unit,
+) {
     var showMenu by remember { mutableStateOf(false) }
 
     GlassCard(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        accent = if (node.isDirectory) CommandBlue else MaterialTheme.colorScheme.outline,
+        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        accent = if (selected) Amber else if (node.isDirectory) CommandBlue else MaterialTheme.colorScheme.outline,
     ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (selectionMode) {
+                Checkbox(checked = selected, onCheckedChange = { onClick() })
+                Spacer(Modifier.width(4.dp))
+            }
             Icon(
                 if (node.isDirectory) Icons.Filled.Folder else Icons.Filled.InsertDriveFile,
                 contentDescription = null,
@@ -463,19 +582,21 @@ private fun FileRow(node: FileNode, onClick: () -> Unit, onRename: () -> Unit, o
                     Text(formatSize(node.sizeBytes), style = MaterialTheme.typography.labelSmall, color = StatusClean)
                 }
             }
-            Box {
-                IconButton(onClick = { showMenu = true }, Modifier.size(32.dp)) {
-                    Icon(Icons.Filled.MoreVert, null, Modifier.size(18.dp), tint = StatusClean)
-                }
-                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                    DropdownMenuItem(text = { Text("Rename") }, onClick = { showMenu = false; onRename() },
-                        leadingIcon = { Icon(Icons.Filled.Edit, null) })
-                    if (!node.isDirectory) {
-                        DropdownMenuItem(text = { Text("Blame") }, onClick = { showMenu = false; onBlame() },
-                            leadingIcon = { Icon(Icons.Filled.History, null) })
+            if (!selectionMode) {
+                Box {
+                    IconButton(onClick = { showMenu = true }, Modifier.size(32.dp)) {
+                        Icon(Icons.Filled.MoreVert, null, Modifier.size(18.dp), tint = StatusClean)
                     }
-                    DropdownMenuItem(text = { Text("Delete") }, onClick = { showMenu = false; onDelete() },
-                        leadingIcon = { Icon(Icons.Filled.Delete, null, tint = StatusDeleted) })
+                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                        DropdownMenuItem(text = { Text("Rename") }, onClick = { showMenu = false; onRename() },
+                            leadingIcon = { Icon(Icons.Filled.Edit, null) })
+                        if (!node.isDirectory) {
+                            DropdownMenuItem(text = { Text("Blame") }, onClick = { showMenu = false; onBlame() },
+                                leadingIcon = { Icon(Icons.Filled.History, null) })
+                        }
+                        DropdownMenuItem(text = { Text("Delete") }, onClick = { showMenu = false; onDelete() },
+                            leadingIcon = { Icon(Icons.Filled.Delete, null, tint = StatusDeleted) })
+                    }
                 }
             }
         }

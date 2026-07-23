@@ -125,6 +125,22 @@ object GitEngine {
         if (r.advertisedRefs.isEmpty()) "Already up to date" else "Fetched from $remote"
     }
 
+    /** Same fetch as above, but also reports how many remote-tracking refs actually moved —
+     *  what [SyncWorker] uses to decide whether a repo genuinely has new commits worth a
+     *  notification, versus a fetch that ran and found nothing new. JGit's own
+     *  `trackingRefUpdates` is the right signal here (rather than e.g. comparing ahead/behind
+     *  counts before and after): it reflects every branch that moved, not just the current
+     *  one, and a fetch with zero tracking ref updates really did find nothing new. */
+    suspend fun fetchAndCountUpdates(
+        git: Git, remote: String = "origin", prune: Boolean = true,
+        credential: DecryptedCredential? = null,
+    ): GitResult<Int> = io {
+        val r = git.fetch().setRemote(remote).setRemoveDeletedRefs(prune)
+            .also { credential?.let { c -> it.setCredentialsProvider(c.toProvider()) } }
+            .call()
+        r.trackingRefUpdates.size
+    }
+
     // ── pull ──────────────────────────────────────────────────────────────────
 
     suspend fun pullMerge(git: Git, credential: DecryptedCredential? = null): GitResult<String> = io {

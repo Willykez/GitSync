@@ -28,6 +28,7 @@ data class DiscoverUiState(
     val selectedCredentialId: Long? = null,
     val cloningFullName: String? = null,
     val isCreating: Boolean = false,
+    val deletingFullName: String? = null,
     val message: String? = null,
 )
 
@@ -107,11 +108,14 @@ class DiscoverViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Creates a brand-new repo on GitHub, then immediately clones it into the app so it
-     * shows up in the repo list right away — same end result as creating one on github.com
-     * in a browser and pasting the clone URL in, just without leaving the app.
+     * Creates a brand-new repo on GitHub. When [autoClone] is true (the default from the
+     * dialog) it's immediately cloned into the app too, so it shows up in the repo list right
+     * away — same end result as creating one on github.com in a browser and pasting the clone
+     * URL in, just without leaving the app. When false, this only hits the GitHub create-repo
+     * endpoint — useful for scaffolding a repo to push an existing local project into later,
+     * where auto-cloning an empty repo on top of it would just be extra cleanup.
      */
-    fun createRepo(name: String, description: String, private: Boolean) {
+    fun createRepo(name: String, description: String, private: Boolean, autoClone: Boolean = true) {
         if (name.isBlank()) {
             _state.value = _state.value.copy(message = "Give the repo a name first")
             return
@@ -127,7 +131,7 @@ class DiscoverViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         val context = getApplication<App>()
-        if (!PublicStorage.hasStorageAccess(context)) {
+        if (autoClone && !PublicStorage.hasStorageAccess(context)) {
             _state.value = _state.value.copy(
                 message = "Repo Master needs storage access to save repos in a public folder. " +
                     "Grant it from the banner on the repo list, then try again.",
@@ -140,10 +144,42 @@ class DiscoverViewModel(app: Application) : AndroidViewModel(app) {
             when (val created = GitHubApi.createRepo(name, description, private, token)) {
                 is GitHubResult.Error -> _state.value = _state.value.copy(isCreating = false, message = "GitHub: ${created.message}")
                 is GitHubResult.Success -> {
-                    val credential = credRepo.getById(credentialId)
-                    val message = cloneAndTrack(created.data, credential, credentialId)
+                    val message = if (autoClone) {
+                        val credential = credRepo.getById(credentialId)
+                        cloneAndTrack(created.data, credential, credentialId)
+                    } else {
+                        "Created ${created.data.fullName} on GitHub"
+                    }
                     _state.value = _state.value.copy(isCreating = false, message = message)
                 }
+            }
+        }
+    }
+
+    /**
+     * Permanently deletes a repo from GitHub — this never touches anything on disk. A local
+     * clone tracked in [repoRepo] (if any) is left completely alone; the person can keep
+     * working in it offline, or remove it separately from the repo list if they want to.
+     * [CreateRepoDialog]/the delete confirmation dialog are what make that split explicit to
+     * the person before this ever runs.
+     */
+    fun deleteRepoOnGithub(repo: GitHubRepoSummary) {
+        val token = selectedToken()
+        if (token.isNullOrBlank()) {
+            _state.value = _state.value.copy(message = "Pick a saved credential with a GitHub token first")
+            return
+        }
+        viewModelScope.launch {
+            _state.value = _state.value.copy(deletingFullName = repo.fullName)
+            when (val r = GitHubApi.deleteRepo(repo.fullName, token)) {
+                is GitHubResult.Error ->
+                    _state.value = _state.value.copy(deletingFullName = null, message = "GitHub: ${r.message}")
+                is GitHubResult.Success ->
+                    _state.value = _state.value.copy(
+                        deletingFullName = null,
+                        results = _state.value.results.filterNot { it.fullName == repo.fullName },
+                        message = "Deleted ${repo.fullName} from GitHub",
+                    )
             }
         }
     }

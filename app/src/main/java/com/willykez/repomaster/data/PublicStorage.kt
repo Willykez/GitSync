@@ -52,6 +52,26 @@ object PublicStorage {
     }
 
     /**
+     * Where the Actions screen's "Install" button saves an extracted APK — under
+     * `.RepoMaster/apk-downloads/<repoName>/`, not inside the repo's own working copy.
+     * Keeping it out of the repo folder matters: a file dropped straight into the working
+     * tree would show up as an untracked change in every Changes/Log screen for that repo,
+     * which a downloaded build artifact has no business being. Organizing per-repo (rather
+     * than one shared folder) just makes it obvious which app a given APK came from if
+     * someone goes looking in a file manager later.
+     *
+     * Contents here are disposable — each new install for a repo overwrites whatever was
+     * there before, the same "always exactly one thing at a time" model as the app-private
+     * cache version used previously, just relocated to public storage per repo.
+     */
+    fun apkDownloadsDir(repoName: String): File {
+        val root = File(Environment.getExternalStorageDirectory(), FOLDER_NAME)
+        val dir = File(File(root, "apk-downloads"), repoName.ifBlank { "unknown-repo" })
+        dir.mkdirs()
+        return dir
+    }
+
+    /**
      * Whether the app currently has the access it needs to read/write the
      * public folder above. On Android 10 and below this is always true here
      * (classic WRITE_EXTERNAL_STORAGE, requested separately, covers it).

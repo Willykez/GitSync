@@ -235,6 +235,7 @@ fun FileEditorScreen(
     repoId: Long,
     relativePath: String,
     onBack: () -> Unit,
+    initialLine: Int? = null,
     vm: FileEditorViewModel = viewModel(),
 ) {
     val state by vm.uiState.collectAsState()
@@ -251,6 +252,19 @@ fun FileEditorScreen(
     LaunchedEffect(repoId, relativePath) { vm.load(repoId, relativePath) }
     LaunchedEffect(state.message) {
         state.message?.let { snack.showSnackbar(it); vm.dismissMessage() }
+    }
+
+    // Arriving from Search's "jump straight to the matched line" — fires once the file
+    // has actually finished loading into the text field, so there's real content/line
+    // count to scroll against. Guarded on isBinaryOrTooLarge too since a line jump into
+    // a file that couldn't be opened as text wouldn't mean anything.
+    LaunchedEffect(state.isLoading) {
+        if (!state.isLoading && !state.isBinaryOrTooLarge && initialLine != null && initialLine >= 1) {
+            val offset = offsetForLineCol(state.text.text, initialLine, 1)
+            vm.moveCursorTo(offset)
+            val targetPx = with(density) { (EditorLineHeight.toPx() * (initialLine - 1) - 80).coerceAtLeast(0f) }
+            editorScrollState.animateScrollTo(targetPx.toInt())
+        }
     }
 
     val (currentLine, currentCol) = remember(state.text.selection.start, state.text.text) {

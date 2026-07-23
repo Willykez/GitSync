@@ -173,7 +173,7 @@ class ActionsViewModel(app: Application) : AndroidViewModel(app) {
                 is GitHubResult.Error ->
                     _state.value = _state.value.copy(installingArtifactId = null, message = dl.message)
                 is GitHubResult.Success -> {
-                    when (val extracted = ApkInstaller.extractAndBuildInstallIntent(context, dl.data, artifact.name)) {
+                    when (val extracted = ApkInstaller.extractAndBuildInstallIntent(context, dl.data, artifact.name, _state.value.repoName)) {
                         is ApkInstaller.Result.Ready -> {
                             _state.value = _state.value.copy(installingArtifactId = null)
                             onIntentReady(extracted.installIntent)

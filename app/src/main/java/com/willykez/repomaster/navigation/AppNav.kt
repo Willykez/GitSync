@@ -76,10 +76,11 @@ object Routes {
     const val TAGS       = "tags/{repoId}"
     const val GITIGNORE  = "gitignore/{repoId}"
     const val EXPLORER   = "explorer/{repoId}/{encodedPath}"
-    const val EDITOR     = "editor/{repoId}/{encodedPath}"
+    const val EDITOR     = "editor/{repoId}/{encodedPath}?line={line}"
     const val CONFLICTS  = "conflicts/{repoId}"
     const val BLAME      = "blame/{repoId}/{encodedPath}"
     const val ACTIONS    = "actions/{repoId}"
+    const val SEARCH     = "search/{repoId}"
 
     fun branches(id: Long) = "branches/$id"
     fun stash(id: Long)    = "stash/$id"
@@ -90,11 +91,12 @@ object Routes {
         "diff/$id/${java.net.URLEncoder.encode(path, "UTF-8")}/$staged"
     fun explorer(id: Long, path: String = "") =
         "explorer/$id/${java.net.URLEncoder.encode(path.ifBlank { "." }, "UTF-8")}"
-    fun editor(id: Long, path: String) =
-        "editor/$id/${java.net.URLEncoder.encode(path, "UTF-8")}"
+    fun editor(id: Long, path: String, line: Int? = null) =
+        "editor/$id/${java.net.URLEncoder.encode(path, "UTF-8")}" + (line?.let { "?line=$it" } ?: "")
     fun conflicts(id: Long) = "conflicts/$id"
     fun actions(id: Long) = "actions/$id"
     fun blame(id: Long, path: String) = "blame/$id/${java.net.URLEncoder.encode(path, "UTF-8")}"
+    fun search(id: Long) = "search/$id"
 }
 
 private data class TabItem(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
@@ -258,6 +260,7 @@ private fun RepoMasterNavHost(
                     onOpenFolder = { childPath -> nav.navigate(Routes.explorer(id, childPath)) },
                     onOpenFile = { filePath -> nav.navigate(Routes.editor(id, filePath)) },
                     onOpenBlame = { filePath -> nav.navigate(Routes.blame(id, filePath)) },
+                    onOpenSearch = { nav.navigate(Routes.search(id)) },
                 )
             }
         }
@@ -307,17 +310,21 @@ private fun RepoMasterNavHost(
                 onOpenFolder = { childPath -> nav.navigate(Routes.explorer(id, childPath)) },
                 onOpenFile = { filePath -> nav.navigate(Routes.editor(id, filePath)) },
                 onOpenBlame = { filePath -> nav.navigate(Routes.blame(id, filePath)) },
+                onOpenSearch = { nav.navigate(Routes.search(id)) },
             )
         }
         composable(Routes.EDITOR, arguments = listOf(
             navArgument("repoId") { type = NavType.LongType },
             navArgument("encodedPath") { type = NavType.StringType },
+            navArgument("line") { type = NavType.IntType; defaultValue = -1 },
         )) { bs ->
             val path = java.net.URLDecoder.decode(bs.arguments!!.getString("encodedPath") ?: "", "UTF-8")
+            val line = bs.arguments!!.getInt("line")
             FileEditorScreen(
                 repoId = bs.arguments!!.getLong("repoId"),
                 relativePath = path,
                 onBack = { nav.popBackStack() },
+                initialLine = if (line >= 1) line else null,
             )
         }
         composable(Routes.CONFLICTS, arguments = listOf(navArgument("repoId") { type = NavType.LongType })) { bs ->
@@ -345,6 +352,14 @@ private fun RepoMasterNavHost(
                 repoId = id, path = path,
                 onBack = { nav.popBackStack() },
                 onOpenCommit = { sha -> nav.navigate("diff/$id/${java.net.URLEncoder.encode(sha, "UTF-8")}/commit") },
+            )
+        }
+        composable(Routes.SEARCH, arguments = listOf(navArgument("repoId") { type = NavType.LongType })) { bs ->
+            val id = bs.arguments!!.getLong("repoId")
+            com.willykez.repomaster.ui.screens.search.SearchScreen(
+                repoId = id,
+                onBack = { nav.popBackStack() },
+                onOpenResult = { path, line -> nav.navigate(Routes.editor(id, path, line)) },
             )
         }
     }

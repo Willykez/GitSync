@@ -36,6 +36,15 @@
     -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!--
+        Android 13+ (API 33+) requires this runtime permission before any
+        notification can be shown — including the background sync summary
+        notification (see sync/SyncNotifier.kt). Requested from
+        SettingsScreen when the person turns background sync on, since
+        SyncWorker itself runs headless with no Activity to prompt from.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:name=".App"
         android:allowBackup="false"
@@ -59,10 +68,11 @@
         </activity>
 
         <!--
-            Scoped only to the "apk-installs" cache subfolder (see
-            res/xml/file_paths.xml and data/ApkInstaller.kt) — not the whole
-            cache dir — so a content:// grant handed to the system installer
-            can't be used to reach anything else the app has cached.
+            Scoped only to ".RepoMaster/apk-downloads/" (see
+            res/xml/file_paths.xml and data/PublicStorage.apkDownloadsDir /
+            data/ApkInstaller.kt) — not all of shared storage — so a
+            content:// grant handed to the system installer can't be used
+            to reach anything else on the device.
         -->
         <provider
             android:name="androidx.core.content.FileProvider"

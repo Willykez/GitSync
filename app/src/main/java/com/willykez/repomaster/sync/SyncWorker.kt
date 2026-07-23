@@ -15,6 +15,9 @@ import com.willykez.repomaster.git.GitResult
  * the background risks a silent conflict landing in the working tree while the user isn't
  * looking, with no chance to review it first. A manual Pull is still needed to actually bring
  * changes in; this just means "you'll already know there's something to pull."
+ *
+ * Also posts one summary notification (via [SyncNotifier]) if this pass found new commits on
+ * any repo — never one notification per repo, see [SyncNotifier] for why.
  */
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
@@ -23,6 +26,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val repos = app.repoRepository.allRepos.first() // one-shot read; this worker is headless
 
         var anyFailure = false
+        val reposWithNewCommits = mutableListOf<String>()
 
         for (repo in repos) {
             val credential = if (repo.credentialId != 0L) app.credentialRepository.getById(repo.credentialId) else null
@@ -34,8 +38,11 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 }
                 is GitResult.Success -> {
                     val git = opened.data
-                    when (val result = GitEngine.fetch(git, credential = credential)) {
-                        is GitResult.Success -> app.repoRepository.markSyncSuccess(repo.id)
+                    when (val result = GitEngine.fetchAndCountUpdates(git, credential = credential)) {
+                        is GitResult.Success -> {
+                            app.repoRepository.markSyncSuccess(repo.id)
+                            if (result.data > 0) reposWithNewCommits.add(repo.name)
+                        }
                         is GitResult.Error -> {
                             anyFailure = true
                             app.repoRepository.markError(repo.id, result.message)
@@ -45,6 +52,8 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 }
             }
         }
+
+        com.willykez.repomaster.sync.SyncNotifier.notify(applicationContext, reposWithNewCommits)
 
         // Retry later on failure (e.g. a transient network issue) rather than giving up for
         // the rest of the scheduled period; repos that did fetch successfully still count.

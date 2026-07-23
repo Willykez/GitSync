@@ -117,7 +117,10 @@ fun DiscoverScreen(onBack: () -> Unit, vm: DiscoverViewModel = viewModel()) {
                         DiscoverRepoCard(
                             repo = repo,
                             isCloning = state.cloningFullName == repo.fullName,
+                            isDeleting = state.deletingFullName == repo.fullName,
+                            isMine = state.showingMine,
                             onClone = { vm.cloneRepo(repo) },
+                            onDelete = { vm.deleteRepoOnGithub(repo) },
                         )
                     }
                 }
@@ -130,8 +133,8 @@ fun DiscoverScreen(onBack: () -> Unit, vm: DiscoverViewModel = viewModel()) {
             isCreating = state.isCreating,
             hasCredential = state.credentials.isNotEmpty(),
             onDismiss = { showCreateDialog = false },
-            onCreate = { name, description, private ->
-                vm.createRepo(name, description, private)
+            onCreate = { name, description, private, autoClone ->
+                vm.createRepo(name, description, private, autoClone)
                 showCreateDialog = false
             },
         )
@@ -143,11 +146,12 @@ private fun CreateRepoDialog(
     isCreating: Boolean,
     hasCredential: Boolean,
     onDismiss: () -> Unit,
-    onCreate: (name: String, description: String, private: Boolean) -> Unit,
+    onCreate: (name: String, description: String, private: Boolean, autoClone: Boolean) -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var isPrivate by remember { mutableStateOf(true) }
+    var autoClone by remember { mutableStateOf(true) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -178,15 +182,21 @@ private fun CreateRepoDialog(
                     Switch(checked = isPrivate, onCheckedChange = { isPrivate = it })
                 }
                 Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text("Clone locally after creating", modifier = Modifier.weight(1f))
+                    Switch(checked = autoClone, onCheckedChange = { autoClone = it })
+                }
+                Spacer(Modifier.height(4.dp))
                 Text(
-                    "Creates it on GitHub and clones it here right away.",
+                    if (autoClone) "Creates it on GitHub and clones it here right away."
+                    else "Only creates it on GitHub — nothing is cloned to this device.",
                     style = MaterialTheme.typography.bodySmall, color = StatusClean,
                 )
             }
         },
         confirmButton = {
             Button(
-                onClick = { onCreate(name.trim(), description.trim(), isPrivate) },
+                onClick = { onCreate(name.trim(), description.trim(), isPrivate, autoClone) },
                 enabled = !isCreating && hasCredential && name.isNotBlank(),
             ) {
                 if (isCreating) {
@@ -203,7 +213,16 @@ private fun CreateRepoDialog(
 }
 
 @Composable
-private fun DiscoverRepoCard(repo: GitHubRepoSummary, isCloning: Boolean, onClone: () -> Unit) {
+private fun DiscoverRepoCard(
+    repo: GitHubRepoSummary,
+    isCloning: Boolean,
+    isDeleting: Boolean,
+    isMine: Boolean,
+    onClone: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
     GlassCard(
         Modifier.fillMaxWidth(),
         accent = if (repo.private) Amber else null,
@@ -225,17 +244,53 @@ private fun DiscoverRepoCard(repo: GitHubRepoSummary, isCloning: Boolean, onClon
                 Text(repo.description, style = MaterialTheme.typography.bodySmall, color = StatusClean, maxLines = 2)
             }
             Spacer(Modifier.height(10.dp))
-            Button(onClick = onClone, enabled = !isCloning, modifier = Modifier.fillMaxWidth()) {
-                if (isCloning) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Cloning…")
-                } else {
-                    Icon(Icons.Filled.Download, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Clone")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onClone, enabled = !isCloning && !isDeleting, modifier = Modifier.weight(1f)) {
+                    if (isCloning) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Cloning…")
+                    } else {
+                        Icon(Icons.Filled.Download, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Clone")
+                    }
+                }
+                if (isMine) {
+                    OutlinedButton(
+                        onClick = { showDeleteConfirm = true },
+                        enabled = !isCloning && !isDeleting,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusDeleted),
+                    ) {
+                        if (isDeleting) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = StatusDeleted)
+                        } else {
+                            Icon(Icons.Filled.DeleteOutline, "Delete from GitHub", Modifier.size(16.dp))
+                        }
+                    }
                 }
             }
         }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete ${repo.fullName}?") },
+            text = {
+                Text(
+                    "This permanently deletes the repo from GitHub — issues, PRs, releases, everything. " +
+                        "It only affects GitHub: if you have this repo cloned on this device, that local " +
+                        "clone is untouched and keeps working exactly as before.",
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showDeleteConfirm = false; onDelete() },
+                    colors = ButtonDefaults.buttonColors(containerColor = StatusDeleted),
+                ) { Text("Delete from GitHub") }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") } },
+        )
     }
 }

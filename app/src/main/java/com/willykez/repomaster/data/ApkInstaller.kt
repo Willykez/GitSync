@@ -13,11 +13,12 @@ import java.util.zip.ZipInputStream
  * Turns a downloaded GitHub Actions artifact (always a zip — GitHub wraps every artifact,
  * even a single file, in one) into a system install prompt.
  *
- * The extracted APK is written to its own cache subfolder (`apk-installs/`) rather than
- * anywhere under the app's public repo storage — this is disposable install media, not
- * something that belongs in a repo, and keeping it in one dedicated subfolder is what lets
- * the [FileProvider] declaration in the manifest grant read access to *just* that folder
- * instead of the whole cache dir.
+ * The extracted APK is saved to [PublicStorage.apkDownloadsDir] — a public, per-repo folder
+ * under `.RepoMaster/apk-downloads/<repoName>/`, next to (not inside) that repo's working
+ * copy. Public rather than app-private cache means the APK is still there afterward if
+ * someone wants to grab it with a file manager, share it, or side-load it on another
+ * device — the same "visible to any other tool" reasoning behind putting repos themselves
+ * in public storage (see [PublicStorage]).
  */
 object ApkInstaller {
 
@@ -27,19 +28,24 @@ object ApkInstaller {
         data class Failed(val message: String) : Result()
     }
 
-    private const val CACHE_SUBFOLDER = "apk-installs"
-
     suspend fun extractAndBuildInstallIntent(
         context: Context,
         zipBytes: ByteArray,
         artifactName: String,
+        repoName: String,
     ): Result = withContext(Dispatchers.IO) {
         try {
-            val outDir = File(context.cacheDir, CACHE_SUBFOLDER)
-            // Clear anything left from a previous install so this folder never accumulates
-            // stale APKs across runs — it only ever needs to hold the one being installed now.
-            outDir.deleteRecursively()
-            outDir.mkdirs()
+            if (!PublicStorage.hasStorageAccess(context)) {
+                return@withContext Result.Failed(
+                    "Repo Master needs storage access to save the APK. Grant it from the banner on the repo list, then try again.",
+                )
+            }
+
+            val outDir = PublicStorage.apkDownloadsDir(repoName)
+            // Clear anything left from a previous install for this repo — this folder only
+            // ever needs to hold the one build currently being installed, not every build
+            // anyone's ever tapped Install on.
+            outDir.listFiles()?.forEach { it.delete() }
 
             val apkFile = File(outDir, "${artifactName.ifBlank { "build" }}.apk")
             var found = false

@@ -12,6 +12,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -533,6 +534,7 @@ private fun FileRow(
 ) {
     val (icon, color) = statusIcon(e.status)
     var showOptions by remember { mutableStateOf(false) }
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
 
     // Swipe right = primary action (stage/unstage). Swipe left = discard, but only for
     // unstaged files — staged files have nothing destructive to do in that direction, so
@@ -540,8 +542,14 @@ private fun FileRow(
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> onToggle()
-                SwipeToDismissBoxValue.EndToStart -> if (!staged) onDiscard()
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                    onToggle()
+                }
+                SwipeToDismissBoxValue.EndToStart -> if (!staged) {
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    onDiscard()
+                }
                 SwipeToDismissBoxValue.Settled -> {}
             }
             false // always snap back — the row leaves the list via data change, not the swipe animation
@@ -610,19 +618,75 @@ private fun FileRow(
     }
 }
 
+private val COMMIT_TYPES = listOf("feat", "fix", "chore", "docs", "refactor", "test", "perf", "style", "ci", "build")
+private val COMMIT_PREFIX_REGEX = Regex("""^(\w+)(\(([^)]*)\))?:\s*""")
+
+/**
+ * Picking a type chip rewrites just the `type(scope): ` prefix of the message, in place —
+ * there's no separate "preview" text to keep in sync with what you actually type, the field
+ * itself always shows exactly what will be committed. Reselecting the same chip clears the
+ * prefix back out; switching chips swaps it. Scope is optional and only appears once a type's
+ * picked, since a bare `feat: ` is a completely valid conventional commit on its own.
+ */
 @Composable
 private fun CommitBar(
     message: String, onMessageChanged: (String) -> Unit,
     isWorking: Boolean, onCommit: () -> Unit, onPush: () -> Unit,
 ) {
+    val currentMatch = remember(message) { COMMIT_PREFIX_REGEX.find(message) }
+    val currentType = currentMatch?.groupValues?.get(1)?.takeIf { it in COMMIT_TYPES }
+    var scope by remember { mutableStateOf(currentMatch?.groupValues?.get(3) ?: "") }
+
+    fun applyType(type: String?) {
+        val body = if (currentMatch != null) message.substring(currentMatch.range.last + 1) else message
+        val newPrefix = when {
+            type == null -> ""
+            scope.isNotBlank() -> "$type($scope): "
+            else -> "$type: "
+        }
+        onMessageChanged(newPrefix + body)
+    }
+
     Surface(tonalElevation = 8.dp, shadowElevation = 8.dp) {
         Column(Modifier.fillMaxWidth().imePadding().padding(12.dp)) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                COMMIT_TYPES.forEach { type ->
+                    FilterChip(
+                        selected = currentType == type,
+                        onClick = { applyType(if (currentType == type) null else type) },
+                        label = { Text(type, style = MaterialTheme.typography.labelSmall) },
+                    )
+                }
+            }
+            if (currentType != null) {
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = scope,
+                    onValueChange = { scope = it; applyType(currentType) },
+                    label = { Text("Scope (optional)") },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
             OutlinedTextField(
                 value = message, onValueChange = onMessageChanged,
                 label = { Text("Commit message") },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 2, maxLines = 4,
             )
+            val firstLineLength = message.substringBefore('\n').length
+            if (firstLineLength > 72) {
+                Text(
+                    "First line is $firstLineLength characters — most tools wrap or truncate a commit title past ~72",
+                    style = MaterialTheme.typography.labelSmall, color = Amber,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onPush, modifier = Modifier.weight(1f), enabled = !isWorking) {
@@ -641,8 +705,18 @@ private fun CommitBar(
 
 @Composable
 fun ConfirmDialog(title: String, body: String, confirmLabel: String, danger: Boolean = false, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = { Text(body) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel, color = if (danger) StatusDeleted else MaterialTheme.colorScheme.primary) } },
+        confirmButton = {
+            TextButton(onClick = {
+                // A confirm-dialog tap is the one moment in the app where the person is
+                // deliberately committing to something they can't casually undo (reset
+                // hard, force push, drop a stash) — a firm haptic here is confirmation
+                // the tap actually registered, on top of the dialog closing.
+                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                onConfirm()
+            }) { Text(confirmLabel, color = if (danger) StatusDeleted else MaterialTheme.colorScheme.primary) }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }
 

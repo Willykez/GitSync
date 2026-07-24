@@ -262,8 +262,17 @@ fun ChangesScreen(
                     message = state.commitMessage,
                     onMessageChanged = vm::onCommitMessageChanged,
                     isWorking = state.isWorking,
+                    hasChanges = state.staged.isNotEmpty() || state.unstaged.isNotEmpty(),
                     onCommit = vm::commit,
                     onPush = vm::push,
+                    onGenerate = vm::generateCommitMessage,
+                    onStageCommitPush = vm::stageCommitAndPush,
+                    recentMessages = state.recentMessages,
+                    onPickRecent = vm::applyRecentMessage,
+                    template = state.commitTemplate,
+                    onSaveTemplate = vm::setCommitTemplate,
+                    showUpstreamNudge = state.currentBranch in PROTECTED_BRANCH_NAMES && state.hasUpstream == false,
+                    branchName = state.currentBranch,
                 )
         }
     }
@@ -628,14 +637,24 @@ private val COMMIT_PREFIX_REGEX = Regex("""^(\w+)(\(([^)]*)\))?:\s*""")
  * prefix back out; switching chips swaps it. Scope is optional and only appears once a type's
  * picked, since a bare `feat: ` is a completely valid conventional commit on its own.
  */
+private val PROTECTED_BRANCH_NAMES = setOf("main", "master")
+
 @Composable
 private fun CommitBar(
     message: String, onMessageChanged: (String) -> Unit,
-    isWorking: Boolean, onCommit: () -> Unit, onPush: () -> Unit,
+    isWorking: Boolean, hasChanges: Boolean,
+    onCommit: () -> Unit, onPush: () -> Unit,
+    onGenerate: () -> Unit, onStageCommitPush: () -> Unit,
+    recentMessages: List<String>, onPickRecent: (String) -> Unit,
+    template: com.willykez.repomaster.data.CommitPrefs.Template,
+    onSaveTemplate: (prefix: String, footer: String) -> Unit,
+    showUpstreamNudge: Boolean, branchName: String,
 ) {
     val currentMatch = remember(message) { COMMIT_PREFIX_REGEX.find(message) }
     val currentType = currentMatch?.groupValues?.get(1)?.takeIf { it in COMMIT_TYPES }
     var scope by remember { mutableStateOf(currentMatch?.groupValues?.get(3) ?: "") }
+    var showHistory by remember { mutableStateOf(false) }
+    var showTemplateEditor by remember { mutableStateOf(false) }
 
     fun applyType(type: String?) {
         val body = if (currentMatch != null) message.substring(currentMatch.range.last + 1) else message
@@ -676,6 +695,32 @@ private fun CommitBar(
             OutlinedTextField(
                 value = message, onValueChange = onMessageChanged,
                 label = { Text("Commit message") },
+                trailingIcon = {
+                    Row {
+                        // Only worth offering once there's actually something to summarize —
+                        // an empty working tree has nothing for the heuristic to describe.
+                        if (hasChanges) {
+                            IconButton(onClick = onGenerate) {
+                                Icon(Icons.Filled.AutoAwesome, "Generate message from changes", tint = CommandBlue)
+                            }
+                        }
+                        if (recentMessages.isNotEmpty()) {
+                            Box {
+                                IconButton(onClick = { showHistory = true }) {
+                                    Icon(Icons.Filled.History, "Recent messages", tint = StatusClean)
+                                }
+                                DropdownMenu(expanded = showHistory, onDismissRequest = { showHistory = false }) {
+                                    recentMessages.forEach { msg ->
+                                        DropdownMenuItem(
+                                            text = { Text(msg, maxLines = 1, style = MaterialTheme.typography.bodySmall) },
+                                            onClick = { onPickRecent(msg); showHistory = false },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 2, maxLines = 4,
             )
@@ -686,6 +731,30 @@ private fun CommitBar(
                     style = MaterialTheme.typography.labelSmall, color = Amber,
                     modifier = Modifier.padding(top = 2.dp),
                 )
+            }
+            Row(
+                Modifier.fillMaxWidth().clickable { showTemplateEditor = true },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Filled.Description, null, Modifier.size(13.dp), tint = StatusClean)
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    if (template.prefix.isBlank() && template.footer.isBlank()) "No commit template set"
+                    else "Template: ${template.prefix.ifBlank { "—" }} … ${template.footer.ifBlank { "—" }}",
+                    style = MaterialTheme.typography.labelSmall, color = StatusClean, maxLines = 1,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            if (showUpstreamNudge) {
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.WarningAmber, null, Modifier.size(14.dp), tint = Amber)
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "\"$branchName\" has no upstream yet — pushing will set one up on the remote",
+                        style = MaterialTheme.typography.labelSmall, color = Amber,
+                    )
+                }
             }
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -699,7 +768,57 @@ private fun CommitBar(
                     else { Icon(Icons.Filled.Check, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Commit") }
                 }
             }
+            Spacer(Modifier.height(8.dp))
+            // The "just ship it" shortcut — stages everything, commits with whatever's in
+            // the box above, pushes. Kept visually distinct (full-width, tonal emerald)
+            // from Push/Commit above so it doesn't get tapped by reflex when only a partial
+            // stage+commit was actually intended.
+            Button(
+                onClick = onStageCommitPush,
+                enabled = !isWorking && hasChanges,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Emerald, contentColor = Color.Black),
+            ) {
+                if (isWorking) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.Black)
+                } else {
+                    Icon(Icons.Filled.Bolt, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Stage All + Commit + Push")
+                }
+            }
         }
+    }
+
+    if (showTemplateEditor) {
+        var prefix by remember { mutableStateOf(template.prefix) }
+        var footer by remember { mutableStateOf(template.footer) }
+        AlertDialog(
+            onDismissRequest = { showTemplateEditor = false },
+            title = { Text("Commit template") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Applied automatically whenever you tap Generate. Leave either blank to skip it.",
+                        style = MaterialTheme.typography.bodySmall, color = StatusClean,
+                    )
+                    OutlinedTextField(
+                        value = prefix, onValueChange = { prefix = it },
+                        label = { Text("Prefix") },
+                        placeholder = { Text("e.g. \"[PROJ-123] \"") },
+                        singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = footer, onValueChange = { footer = it },
+                        label = { Text("Footer") },
+                        placeholder = { Text("e.g. \"Signed-off-by: you@example.com\"") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { onSaveTemplate(prefix, footer); showTemplateEditor = false }) { Text("Save") } },
+            dismissButton = { TextButton(onClick = { showTemplateEditor = false }) { Text("Cancel") } },
+        )
     }
 }
 

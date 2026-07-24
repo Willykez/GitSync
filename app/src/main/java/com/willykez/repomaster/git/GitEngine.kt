@@ -501,6 +501,16 @@ object GitEngine {
         Pair(ts?.aheadCount ?: 0, ts?.behindCount ?: 0)
     }
 
+    /** Whether the current branch has an upstream (remote-tracking) branch configured at
+     *  all — distinct from ahead/behind being zero, which is also true for a branch that's
+     *  never been pushed. Used for the Changes screen's push-protection nudge: pushing a
+     *  branch called main/master with no upstream yet configured is the exact situation
+     *  where "am I about to create/overwrite something unexpected on the remote?" is worth
+     *  a beat of pause. */
+    suspend fun hasUpstream(git: Git): GitResult<Boolean> = io {
+        BranchTrackingStatus.of(git.repository, git.repository.branch) != null
+    }
+
     suspend fun getHeadCommit(git: Git): GitResult<CommitInfo?> = io {
         val headId = git.repository.resolve("HEAD") ?: return@io null
         val walk = RevWalk(git.repository)
